@@ -1,4 +1,5 @@
 module 0x0::game {
+    use std::vector;
     use std::option::{Self, Option};
     use std::string::{Self, String};
     use sui::object::{Self, UID};
@@ -24,14 +25,29 @@ module 0x0::game {
         verify_key: String,
     }
 
-    // TODO: complete this struct
-    struct Vote has store {
+
+    struct Vote has drop, store {
         voter: address,
         votee: address,
-        // vote_type: VoteType
+        vote_type: u8,
     }
 
-    struct GameOwnerCap has key { id: UID }
+    // EntryType (replace with `enum` once sui Move supports it)
+    struct Cash {
+        typeid: u8,
+        min_deposit: u64,
+        max_deposit: u64,
+    }
+
+    struct Ticket {
+        typeid: u8,
+        slot_id: u64,
+        amount: u64,
+    }
+
+    struct Gating {
+        collection: String,
+    }
 
     /// On-chain game account
     struct Game has key {
@@ -42,10 +58,12 @@ module 0x0::game {
         title: String,
         /// addr to the game core logic program on Arweave
         bundle_addr: address,
+        /// game owner creates this game object
+        owner: address,
         /// addr to the account that holds all players' deposits
-        stake_account: address,
+        // stake_account: address,
         /// mint id of the token used for the game
-        token_mint: address,
+        // token_mint: address,
         /// addr of the frist server joined the game,
         transactor_addr: Option<address>,
         /// a serial number, increased by 1 after each PlayerJoin or ServerJoin
@@ -57,16 +75,15 @@ module 0x0::game {
         /// game players
         players: vector<PlayerJoin>,
         /// game servers (max: 10)
-        servers: vector<ServerJoin>,
-
-        // TODO: data_len and data
+        server_num: u64,
+        // TODO: data_len and data, use sui::bcs
 
         /// game votes
         votes: vector<Vote>,
         /// the time when the game gets unlocked
         unlock_time: Option<u64>,
-        /// entry type
-        entry_type: EntryType,
+        /// entry type: 0: Cash, 1: Ticket, 2: Gating
+        entry_type: u8,
         /// the recipient account
         recipient_addr: address,
         /// checkpoint data
@@ -75,44 +92,89 @@ module 0x0::game {
         checkpoint_access_version: u64,
     }
 
-    fun new(
-        title: vector<u8>,
+    // === Constants ===
+    const ServerVoteTransactorDropoff: u8 = 0;
+    const ClientVoteTransactorDropoff: u8 = 1;
+    const EGameHasLeftPlayers: u64 = 2;
+    const EGameOwnerMismatch: u64 = 3;
+
+    // === Accessors ===
+    fun player_num(self: &Game): u64 {
+        vector::length(&self.players)
+    }
+
+    // === Public ABIs ===
+    public fun create(
+        title: String,
         bundle_addr: address,
+        owner: address,
+        recipient_addr: address,
+        max_players: u64,
+        ctx: &mut TxContext
+    ) {
+        let game = new(title, bundle_addr, owner, recipient_addr, max_players, ctx);
+        transfer::transfer(game, tx_context::sender(ctx));
+    }
+
+    public fun close(game: Game, ctx: &mut TxContext) {
+        assert!(tx_context::sender(ctx) == game.owner, EGameOwnerMismatch);
+        assert!(player_num(&game) == 0, EGameHasLeftPlayers);
+        let players = vector::empty<PlayerJoin>();
+        let servers = vector::empty<ServerJoin>();
+        let Game {
+            id,
+            title: _,
+            version: _,
+            bundle_addr: _,
+            owner: _,
+            transactor_addr: _,
+            access_version: _,
+            settle_version: _,
+            max_players: _,
+            players,
+            servers,
+            votes: _,
+            unlock_time: _,
+            entry_type: _,
+            recipient_addr: _,
+            checkpoint: _,
+            checkpoint_access_version: _,
+        } = game;
+        // TODO: return to its owner any money left in this game object
+        object::delete(id);
+    }
+
+    public fun publish() {
+
+    }
+
+    // === Private functions ===
+    fun new(
+        title: String,
+        bundle_addr: address,
+        owner: address,
+        recipient_addr: address,
         max_players: u64,
         ctx: &mut TxContext
     ): Game {
         Game {
             id: object::new(ctx),
-            title: string::utf8(title),
-            version: string::uft8(b"0.2.2"),
+            title,
+            version: string::utf8(b"0.2.2"),
             bundle_addr,
+            owner,
             transactor_addr: option::none(),
             access_version: 0,
             settle_version: 0,
             max_players,
-            players: vector::new(),
-            servers: vector::new(),
-            votes: vector::new(),
+            players: vector::empty<PlayerJoin>(),
+            servers: vector::empty<ServerJoin>(),
+            votes: vector::empty<Vote>(),
             unlock_time: option::none(),
-            checkpoint: vector::new(),
+            entry_type: 0,
+            recipient_addr,
+            checkpoint: vector::empty<u8>(),
             checkpoint_access_version: 0,
         }
     }
-
-    public entry fun create(
-        title: vector<u8>,
-        bundle_addr: address,
-        max_players: u64,
-        ctx: &mut TxContext
-    ) {
-        let game = new(title, bundle_addr, max_players, ctx);
-        transfer::transfer(game, tx_context::sender(ctx));
-    }
-
-    public entry fun close() {
-
-    }
-
-    public entry fun publish() {}
-
 }
