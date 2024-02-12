@@ -10,16 +10,16 @@ module 0x0::game {
     // ----------------------------------------
     // Children objects used in On-chain objects
     // ----------------------------------------
-    struct PlayerJoin has key, store {
-        id: UID,
+    struct PlayerJoin has drop, store {
+        addr: address,
         balance: u64,
         position: u64,
         access_version: u64,
         verify_key: String,
     }
 
-    struct ServerJoin has key, store {
-        id: UID,
+    struct ServerJoin has drop, store {
+        addr: address,
         endpoint: Url,
         access_version: u64,
         verify_key: String,
@@ -75,7 +75,8 @@ module 0x0::game {
         /// game players
         players: vector<PlayerJoin>,
         /// game servers (max: 10)
-        server_num: u64,
+        servers: vector<ServerJoin>,
+
         // TODO: data_len and data, use sui::bcs
 
         /// game votes
@@ -119,8 +120,6 @@ module 0x0::game {
     public fun close(game: Game, ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == game.owner, EGameOwnerMismatch);
         assert!(player_num(&game) == 0, EGameHasLeftPlayers);
-        let players = vector::empty<PlayerJoin>();
-        let servers = vector::empty<ServerJoin>();
         let Game {
             id,
             title: _,
@@ -131,8 +130,8 @@ module 0x0::game {
             access_version: _,
             settle_version: _,
             max_players: _,
-            players,
-            servers,
+            players: _,
+            servers: _,
             votes: _,
             unlock_time: _,
             entry_type: _,
@@ -140,7 +139,7 @@ module 0x0::game {
             checkpoint: _,
             checkpoint_access_version: _,
         } = game;
-        // TODO: return to its owner any money left in this game object
+
         object::delete(id);
     }
 
