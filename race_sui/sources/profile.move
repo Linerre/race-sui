@@ -32,10 +32,11 @@ module 0x0::profile {
         ctx: &mut TxContext
     ) {
         assert!(tx_context::sender(ctx) == owner, EProfileOwnerMismatch);
-        let new_pfp = option::extract(&mut pfp);
-        let old_pfp = option::swap_or_fill(&mut profile.pfp, new_pfp);
         profile.nick = nick;
-
-        _ = old_pfp;
+        if (option::is_some(&pfp)) {
+            let new_pfp = option::extract(&mut pfp);
+            let old_pfp = option::swap_or_fill(&mut profile.pfp, new_pfp);
+            _ = old_pfp;
+        }
     }
 }
