@@ -3,6 +3,7 @@ module 0x0::game {
     use std::option::{Self, Option};
     use std::string::{Self, String};
     use sui::object::{Self, UID};
+    use sui::table::{Self, Table};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::url::{Self, Url};
@@ -10,6 +11,7 @@ module 0x0::game {
     // ----------------------------------------
     // Children objects used in On-chain objects
     // ----------------------------------------
+
     struct PlayerJoin has drop, store {
         addr: address,
         balance: u64,
@@ -24,7 +26,6 @@ module 0x0::game {
         access_version: u64,
         verify_key: String,
     }
-
 
     struct Vote has drop, store {
         voter: address,
@@ -73,10 +74,11 @@ module 0x0::game {
         /// game size
         max_players: u64,
         /// game players
-        players: vector<PlayerJoin>,
+        players: Table<address, PlayerJoin>,
+        // players: PlayerTable,
         /// game servers (max: 10)
-        servers: vector<ServerJoin>,
-
+        servers: Table<address, ServerJoin>,
+        // servers: ServerTable,
         // TODO: data_len and data, use sui::bcs
 
         /// game votes
@@ -100,8 +102,24 @@ module 0x0::game {
     const EGameOwnerMismatch: u64 = 3;
 
     // === Accessors ===
-    fun player_num(self: &Game): u64 {
-        vector::length(&self.players)
+    public fun player_num(self: &Game): u64 {
+        table::length(&self.players)
+    }
+
+    public fun servers(self: &Game): &Table<address, ServerJoin> {
+        &self.servers
+    }
+
+    public fun servers_mut(self: &mut Game): &mut Table<address, ServerJoin> {
+        &mut self.servers
+    }
+
+    public fun access_version(self: &Game): u64 {
+        self.access_version
+    }
+
+    public fun settle_version(self: &Game): u64 {
+        self.settle_version
     }
 
     // === Public ABIs ===
@@ -119,7 +137,8 @@ module 0x0::game {
 
     public fun close(game: Game, ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == game.owner, EGameOwnerMismatch);
-        assert!(player_num(&game) == 0, EGameHasLeftPlayers);
+        assert!(table::is_empty(&game.players), EGameHasLeftPlayers);
+
         let Game {
             id,
             title: _,
@@ -130,8 +149,8 @@ module 0x0::game {
             access_version: _,
             settle_version: _,
             max_players: _,
-            players: _,
-            servers: _,
+            players: players,
+            servers: servers,
             votes: _,
             unlock_time: _,
             entry_type: _,
@@ -140,7 +159,21 @@ module 0x0::game {
             checkpoint_access_version: _,
         } = game;
 
+        table::drop(players);
+        table::drop(servers);
         object::delete(id);
+    }
+
+    /// Add a new server to game's servers
+    public fun server_join(
+        game: &mut Game,
+        addr: address,
+        endpoint: Url,
+        access_version: u64,
+        verify_key: String
+    ) {
+        let server_join = ServerJoin {addr, endpoint, access_version, verify_key};
+        table::add(&mut game.servers, addr, server_join);
     }
 
     public fun publish() {
@@ -166,8 +199,8 @@ module 0x0::game {
             access_version: 0,
             settle_version: 0,
             max_players,
-            players: vector::empty<PlayerJoin>(),
-            servers: vector::empty<ServerJoin>(),
+            players: table::new(ctx),
+            servers: table::new(ctx),
             votes: vector::empty<Vote>(),
             unlock_time: option::none(),
             entry_type: 0,

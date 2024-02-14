@@ -5,4 +5,4 @@ name = "race_sui"
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 
 [addresses]
-race-sui = "0x0"
+race_sui = "0x0"
