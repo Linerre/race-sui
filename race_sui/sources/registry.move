@@ -1,8 +1,8 @@
 module 0x0::registry {
-    use std::vector;
     use std::string::{Self, String};
     use sui::clock::{Self, Clock};
     use sui::object::{Self, UID};
+    use sui::table::{Self, Table};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
 
@@ -24,12 +24,15 @@ module 0x0::registry {
         /// owner address
         owner: address,
         /// games registered in this center
-        games: vector<GameReg>,
+        games: Table<address, GameReg>,
     }
 
     // === Constants ===
     const ERegistryOwnerMismatch: u64 = 4;
     const ERegistryIsFull: u64 = 5;
+    const ERegistryIsEmpty: u64 = 6;
+    const EDuplicateGameRegistration: u64 = 7;
+    const EGameNotFound: u64 = 7;
 
     public fun create(owner: address, is_private: bool, size: u64, ctx: &mut TxContext) {
         let registry = Registry {
@@ -37,7 +40,7 @@ module 0x0::registry {
             is_private,
             size,
             owner,
-            games: vector::empty<GameReg>(),
+            games: table::new<address, GameReg>(ctx),
         };
 
         transfer::transfer(registry, tx_context::sender(ctx));
@@ -52,10 +55,12 @@ module 0x0::registry {
         ctx: &mut TxContext
     ) {
 
-        assert!(vector::length(&registry.games) >= registry.size, ERegistryIsFull);
+        assert!(table::length(&registry.games) >= registry.size, ERegistryIsFull);
 
         if (registry.is_private && tx_context::sender(ctx) != registry.owner)
             abort ERegistryOwnerMismatch;
+
+        assert!(!table::contains(&registry.games, game_addr), EDuplicateGameRegistration);
 
         let game_reg = GameReg {
             addr: game_addr,
@@ -64,7 +69,18 @@ module 0x0::registry {
             reg_time: clock::timestamp_ms(clock),
         };
 
-        vector::push_back(&mut registry.games, game_reg);
+        table::add(&mut registry.games, game_addr, game_reg);
+
+    }
+
+    public fun unregister_game(game_addr: address, registry: &mut Registry, ctx: &mut TxContext) {
+        assert!(table::length(&registry.games) > 0, ERegistryIsEmpty);
+        if (registry.is_private && tx_context::sender(ctx) != registry.owner)
+            abort ERegistryOwnerMismatch;
+
+        if (!table::contains(&registry.games, game_addr)) abort EGameNotFound;
+
+        table::remove(&mut registry.games, game_addr);
 
     }
 }
