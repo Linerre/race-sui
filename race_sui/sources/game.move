@@ -1,17 +1,29 @@
-module 0x0::game {
+module race_sui::game {
     use std::vector;
     use std::option::{Self, Option};
     use std::string::{Self, String};
+
+    use sui::bag::{Self, Bag};
     use sui::object::{Self, UID};
-    use sui::table::{Self, Table};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::url::{Self, Url};
 
-    // ----------------------------------------
-    // Children objects used in On-chain objects
-    // ----------------------------------------
+    use race_sui::server::{Self, Server};
 
+    // === Constants ===
+    const MAX_SERVER_NUM: u64 = 10;
+    const EServerNumberExceedsLimit: u64 = 405;
+    const EDuplicateServerJoin: u64 = 406;
+    const EGameHasLeftPlayers: u64 = 408;
+    const EGameOwnerMismatch: u64 = 409;
+    const EPositionAlreadyTaken: u64 = 410;
+    const EInvalidDeposit: u64 = 411;
+    const EInvalidPosition: u64 = 412;
+    const EDuplicatePlayerJoin: u64 = 413;
+    const EGameIsFull: u64 = 414;
+
+    // === Structs ===
     struct PlayerJoin has drop, store {
         addr: address,
         balance: u64,
@@ -34,19 +46,20 @@ module 0x0::game {
     }
 
     // EntryType (replace with `enum` once sui Move supports it)
-    struct Cash {
-        typeid: u8,
+    // 0
+    struct Cash has drop, store{
         min_deposit: u64,
         max_deposit: u64,
     }
 
-    struct Ticket {
-        typeid: u8,
+    // 1
+    struct Ticket has drop, store {
         slot_id: u64,
         amount: u64,
     }
 
-    struct Gating {
+    // 2
+    struct Gating has drop, store {
         collection: String,
     }
 
@@ -74,11 +87,9 @@ module 0x0::game {
         /// game size
         max_players: u64,
         /// game players
-        players: Table<address, PlayerJoin>,
-        // players: PlayerTable,
+        players: vector<PlayerJoin>,
         /// game servers (max: 10)
-        servers: Table<address, ServerJoin>,
-        // servers: ServerTable,
+        servers: vector<ServerJoin>,
         // TODO: data_len and data, use sui::bcs
 
         /// game votes
@@ -86,7 +97,7 @@ module 0x0::game {
         /// the time when the game gets unlocked
         unlock_time: Option<u64>,
         /// entry type: 0: Cash, 1: Ticket, 2: Gating
-        entry_type: u8,
+        entry_type: Bag,
         /// the recipient account
         recipient_addr: address,
         /// checkpoint data
@@ -95,22 +106,29 @@ module 0x0::game {
         checkpoint_access_version: u64,
     }
 
-    // === Constants ===
-    const ServerVoteTransactorDropoff: u8 = 0;
-    const ClientVoteTransactorDropoff: u8 = 1;
-    const EGameHasLeftPlayers: u64 = 2;
-    const EGameOwnerMismatch: u64 = 3;
 
     // === Accessors ===
     public fun player_num(self: &Game): u64 {
-        table::length(&self.players)
+        vector::length(&self.players)
     }
 
-    public fun servers(self: &Game): &Table<address, ServerJoin> {
+    public fun max_players(self: &Game): u64 {
+        self.max_players
+    }
+
+    public fun players(self: &Game): &vector<PlayerJoin> {
+        &self.players
+    }
+
+    public fun players_mut(self: &mut Game): &mut vector<PlayerJoin> {
+        &mut self.players
+    }
+
+    public fun servers(self: &Game): &vector<ServerJoin> {
         &self.servers
     }
 
-    public fun servers_mut(self: &mut Game): &mut Table<address, ServerJoin> {
+    public fun servers_mut(self: &mut Game): &mut vector<ServerJoin> {
         &mut self.servers
     }
 
@@ -129,15 +147,26 @@ module 0x0::game {
         owner: address,
         recipient_addr: address,
         max_players: u64,
+        min_deposit: u64,
+        max_deposit: u64,
         ctx: &mut TxContext
     ) {
-        let game = new(title, bundle_addr, owner, recipient_addr, max_players, ctx);
+        let game = new(
+            title,
+            bundle_addr,
+            owner,
+            recipient_addr,
+            max_players,
+            min_deposit,
+            max_deposit, ctx
+        );
+
         transfer::transfer(game, tx_context::sender(ctx));
     }
 
     public fun close(game: Game, ctx: &mut TxContext) {
-        assert!(tx_context::sender(ctx) == game.owner, EGameOwnerMismatch);
-        assert!(table::is_empty(&game.players), EGameHasLeftPlayers);
+        assert!(&tx_context::sender(ctx) == &game.owner, EGameOwnerMismatch);
+        assert!(vector::is_empty(&game.players), EGameHasLeftPlayers);
 
         let Game {
             id,
@@ -149,34 +178,122 @@ module 0x0::game {
             access_version: _,
             settle_version: _,
             max_players: _,
-            players: players,
-            servers: servers,
+            players: _,
+            servers: _,
             votes: _,
             unlock_time: _,
-            entry_type: _,
+            entry_type,
             recipient_addr: _,
             checkpoint: _,
             checkpoint_access_version: _,
         } = game;
 
-        table::drop(players);
-        table::drop(servers);
+        let cash: Cash = bag::remove(&mut entry_type, 0);
+        _ = cash;
+        bag::destroy_empty(entry_type);
         object::delete(id);
     }
 
-    /// Add a new server to game's servers
-    public fun server_join(
-        game: &mut Game,
-        addr: address,
-        endpoint: Url,
-        access_version: u64,
-        verify_key: String
-    ) {
-        let server_join = ServerJoin {addr, endpoint, access_version, verify_key};
-        table::add(&mut game.servers, addr, server_join);
+    public fun publish() {
+
     }
 
-    public fun publish() {
+    /// Server joins a game
+    ///
+    /// When a server joins an on-chain game, it can be either of the following cases:
+    ///
+    /// 1. It is the first to join and thus it becomes the transactor
+    /// 2. It is the nth to join where n is in the range of [2,10] (inclusive)
+    public fun serve(game: &mut Game, server: &Server, verify_key: String, ctx: &mut TxContext) {
+        let server_num = vector::length(&game.servers);
+        assert!(server_num < MAX_SERVER_NUM, EServerNumberExceedsLimit);
+
+        let server_addr = object::uid_to_address(server::uid(server));
+        let i = 0;
+        while (i < server_num) {
+            let curr_server: &ServerJoin = vector::borrow(&game.servers, i);
+            if (&curr_server.addr == server::owner(server)) abort EDuplicateServerJoin;
+            i = i + 1;
+        };
+
+        let access_version = game.access_version + 1;
+
+        vector::push_back(
+            &mut game.servers,
+            ServerJoin {
+                addr: server_addr,
+                endpoint: server::endpoint(server),
+                access_version,
+                verify_key,
+            }
+        );
+
+    }
+
+    /// Player joins a game
+    public fun join(
+        game: &mut Game,
+        player_addr: address,
+        position: u64,
+        balance: u64,
+        amount: u64,
+        verify_key: String
+    ) {
+        let player_num = player_num(game);
+        let max_players = max_players(game);
+
+        assert!(player_num < max_players, EGameIsFull);
+        assert!(position < max_players, EInvalidPosition);
+
+        let i = 0;
+        // position passed may have been taken and we need to check availability
+        let pos_taken = vector::empty<u64>();
+        while (i < player_num) {
+            let curr_player: &PlayerJoin = vector::borrow(&game.players, i);
+            if (&curr_player.addr == &player_addr) {
+                abort EDuplicatePlayerJoin;
+            };
+            vector::push_back(&mut pos_taken, i);
+            i = i + 1;
+
+        };
+
+        let all_pos_taken = false;
+        let avail_pos = position;
+        if (vector::contains(&pos_taken, &position)) {
+            let j = 0;
+            while (j < max_players) {
+                if (!vector::contains(&pos_taken, &j)) {
+                    avail_pos = j;
+                    break;
+                };
+                j = j + 1;
+            };
+            all_pos_taken = true;
+        };
+
+        if (all_pos_taken) abort EInvalidPosition;
+
+        let access_version = game.access_version + 1;
+        let player_join =  PlayerJoin {
+            addr: player_addr,
+            balance,
+            position: avail_pos,
+            access_version,
+            verify_key,
+        };
+
+        if (bag::contains(&game.entry_type, 0)) {
+            // Check player's deposit
+            let cash_type: &Cash = bag::borrow(&game.entry_type, 0);
+            if (amount < cash_type.min_deposit || amount > cash_type.max_deposit) {
+                abort EInvalidDeposit;
+            }
+        };
+        // TODO: add branches for other entry types
+
+        // TODO: transfer player's deposit to the game object
+        vector::push_back(&mut game.players, player_join);
 
     }
 
@@ -187,8 +304,13 @@ module 0x0::game {
         owner: address,
         recipient_addr: address,
         max_players: u64,
+        min_deposit: u64,
+        max_deposit: u64,
         ctx: &mut TxContext
     ): Game {
+        let entry_type = bag::new(ctx);
+        bag::add(&mut entry_type, 0, Cash { min_deposit, max_deposit });
+
         Game {
             id: object::new(ctx),
             title,
@@ -199,11 +321,11 @@ module 0x0::game {
             access_version: 0,
             settle_version: 0,
             max_players,
-            players: table::new(ctx),
-            servers: table::new(ctx),
+            players: vector::empty<PlayerJoin>(),
+            servers: vector::empty<ServerJoin>(),
             votes: vector::empty<Vote>(),
             unlock_time: option::none(),
-            entry_type: 0,
+            entry_type,
             recipient_addr,
             checkpoint: vector::empty<u8>(),
             checkpoint_access_version: 0,

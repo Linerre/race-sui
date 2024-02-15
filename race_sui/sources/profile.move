@@ -1,5 +1,5 @@
 /// Player profile, the on-chain player account
-module 0x0::profile {
+module race_sui::profile {
     use std::string::String;
     use std::option::{Self, Option};
 
@@ -7,17 +7,15 @@ module 0x0::profile {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
 
+    // === Constants ===
+    const EProfileOwnerMismatch: u64 = 415;
 
-    struct Profile has key {
+    struct Profile has key, store {
         id: UID,
         owner: address,
         nick: String,
         pfp: Option<address>,
     }
-
-    // === Constants ===
-    const EProfileOwnerMismatch: u64 = 3;
-
 
     public fun create(owner: address, nick: String, pfp: Option<address>, ctx: &mut TxContext) {
         let profile = Profile { id: object::new(ctx), owner, nick, pfp };
@@ -39,4 +37,5 @@ module 0x0::profile {
             _ = old_pfp;
         }
     }
+
 }

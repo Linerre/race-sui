@@ -1,15 +1,23 @@
-module 0x0::registry {
+module race_sui::registry {
+
     use std::string::{Self, String};
+    use std::vector;
     use sui::clock::{Self, Clock};
     use sui::object::{Self, UID};
-    use sui::table::{Self, Table};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
+
+    // === Constants ===
+    const ERegistryOwnerMismatch: u64 = 400;
+    const ERegistryIsFull: u64 = 401;
+    const ERegistryIsEmpty: u64 = 402;
+    const EDuplicateGameRegistration: u64 = 403;
+    const EGameNotRegistered: u64 = 404;
 
     struct GameReg has drop, store {
         /// game title/name displayed on chain
         title: String,
-        /// on-chain game's object id
+        /// on-chain game's object address
         addr: address,
         bundle_addr: address,
         reg_time: u64,
@@ -24,15 +32,9 @@ module 0x0::registry {
         /// owner address
         owner: address,
         /// games registered in this center
-        games: Table<address, GameReg>,
+        games: vector<GameReg>,
     }
 
-    // === Constants ===
-    const ERegistryOwnerMismatch: u64 = 4;
-    const ERegistryIsFull: u64 = 5;
-    const ERegistryIsEmpty: u64 = 6;
-    const EDuplicateGameRegistration: u64 = 7;
-    const EGameNotFound: u64 = 7;
 
     public fun create(owner: address, is_private: bool, size: u64, ctx: &mut TxContext) {
         let registry = Registry {
@@ -40,7 +42,7 @@ module 0x0::registry {
             is_private,
             size,
             owner,
-            games: table::new<address, GameReg>(ctx),
+            games: vector::empty<GameReg>(),
         };
 
         transfer::transfer(registry, tx_context::sender(ctx));
@@ -55,12 +57,20 @@ module 0x0::registry {
         ctx: &mut TxContext
     ) {
 
-        assert!(table::length(&registry.games) >= registry.size, ERegistryIsFull);
+        let n = vector::length(&registry.games);
+        assert!(n >= registry.size, ERegistryIsFull);
 
-        if (registry.is_private && tx_context::sender(ctx) != registry.owner)
+        // Comparison consumes the value, so using reference to avoid the consumption
+        // See: https://move-language.github.io/move/equality.html#restrictions
+        if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
             abort ERegistryOwnerMismatch;
 
-        assert!(!table::contains(&registry.games, game_addr), EDuplicateGameRegistration);
+        let i = 0;
+        while (i < n) {
+            let curr_game: &GameReg = vector::borrow(&registry.games, i);
+            assert!(&curr_game.addr != &game_addr, EDuplicateGameRegistration);
+            i = i + 1;
+        };
 
         let game_reg = GameReg {
             addr: game_addr,
@@ -69,18 +79,32 @@ module 0x0::registry {
             reg_time: clock::timestamp_ms(clock),
         };
 
-        table::add(&mut registry.games, game_addr, game_reg);
+        vector::push_back(&mut registry.games, game_reg);
 
     }
 
     public fun unregister_game(game_addr: address, registry: &mut Registry, ctx: &mut TxContext) {
-        assert!(table::length(&registry.games) > 0, ERegistryIsEmpty);
-        if (registry.is_private && tx_context::sender(ctx) != registry.owner)
+        assert!(vector::length(&registry.games) > 0, ERegistryIsEmpty);
+        if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
             abort ERegistryOwnerMismatch;
 
-        if (!table::contains(&registry.games, game_addr)) abort EGameNotFound;
+        let n = vector::length(&registry.games);
+        let i = 0;
+        let game_reged = false;
+        let game_idx = 0;
+        while (i < n) {
+            let curr_game = vector::borrow(&registry.games, i);
+            if (&curr_game.addr == &game_addr) {
+                game_reged = true;
+                game_idx = i;
+                break;
+            };
+            i = i + 1;
+        };
 
-        table::remove(&mut registry.games, game_addr);
+        if (!game_reged) abort EGameNotRegistered;
+
+        vector::remove(&mut registry.games, game_idx);
 
     }
 }
