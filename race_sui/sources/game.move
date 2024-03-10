@@ -4,7 +4,8 @@ module race_sui::game {
     use std::string::{Self, String};
 
     use sui::bag::{Self, Bag};
-    use sui::object::{Self, UID};
+    use sui::event;
+    use sui::object::{Self, ID, UID};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::url::{Self, Url};
@@ -106,6 +107,10 @@ module race_sui::game {
         checkpoint_access_version: u64,
     }
 
+    struct GameMinted has copy, drop {
+        game_id: ID,
+        minted_by: address,
+    }
 
     // === Accessors ===
     public fun player_num(self: &Game): u64 {
@@ -194,8 +199,15 @@ module race_sui::game {
         object::delete(id);
     }
 
-    public fun publish() {
+    // TODO: Only allow game owner to mint the game?
+    /// Publish (mint) the game as NFT
+    public fun publish(game_addr: address, ctx: &mut TxContext) {
+        let game_id = object::id_from_address(game_addr);
 
+        event::emit(GameMinted {
+            game_id,
+            minted_by: tx_context::sender(ctx),
+        });
     }
 
     /// Server joins a game
