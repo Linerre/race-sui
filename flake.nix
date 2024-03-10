@@ -28,7 +28,6 @@
               nodejs_20
               nodePackages.pnpm
             ];
-            RUST_LOG="info,sui_node=info";
           };
         }
     );
