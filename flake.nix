@@ -25,7 +25,10 @@
             buildInputs = [
               sui-devnet # or sui-testnet, sui-mainnet
               just
+              nodejs_20
+              nodePackages.pnpm
             ];
+            RUST_LOG="info,sui_node=info";
           };
         }
     );
