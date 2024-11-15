@@ -1,11 +1,8 @@
 module race_sui::server {
     use std::string::{Self, String};
-    use sui::object::{Self, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
     use sui::url::{Self, Url};
 
-    struct Server has key {
+    public struct Server has key {
         id: UID,
         owner: address,
         endpoint: Url,

@@ -1,11 +1,6 @@
 module race_sui::registry {
-
-    use std::string::{Self, String};
-    use std::vector;
+    use std::string::{String};
     use sui::clock::{Self, Clock};
-    use sui::object::{Self, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
 
     // === Constants ===
     const ERegistryOwnerMismatch: u64 = 400;
@@ -14,7 +9,7 @@ module race_sui::registry {
     const EDuplicateGameRegistration: u64 = 403;
     const EGameNotRegistered: u64 = 404;
 
-    struct GameReg has drop, store {
+    public struct GameReg has drop, store {
         /// game title/name displayed on chain
         title: String,
         /// on-chain game's object address
@@ -23,7 +18,7 @@ module race_sui::registry {
         reg_time: u64,
     }
 
-    struct Registry has key {
+    public struct Registry has key {
         id: UID,
         /// whether or not this registration center is private
         is_private: bool,
@@ -65,7 +60,7 @@ module race_sui::registry {
         if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
             abort ERegistryOwnerMismatch;
 
-        let i = 0;
+        let mut i = 0;
         while (i < n) {
             let curr_game: &GameReg = vector::borrow(&registry.games, i);
             assert!(&curr_game.addr != &game_addr, EDuplicateGameRegistration);
@@ -89,15 +84,15 @@ module race_sui::registry {
             abort ERegistryOwnerMismatch;
 
         let n = vector::length(&registry.games);
-        let i = 0;
-        let game_reged = false;
-        let game_idx = 0;
+        let mut i = 0;
+        let mut game_reged = false;
+        let mut game_idx = 0;
         while (i < n) {
             let curr_game = vector::borrow(&registry.games, i);
             if (&curr_game.addr == &game_addr) {
                 game_reged = true;
                 game_idx = i;
-                break;
+                break
             };
             i = i + 1;
         };

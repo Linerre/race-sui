@@ -1,23 +1,18 @@
 /// Player profile, the on-chain player account
 module race_sui::profile {
     use std::string::String;
-    use std::option::{Self, Option};
-
-    use sui::object::{Self, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
 
     // === Constants ===
     const EProfileOwnerMismatch: u64 = 415;
 
-    struct Profile has key, store {
+    public struct Profile has key, store {
         id: UID,
         owner: address,
         nick: String,
         pfp: Option<address>,
     }
 
-    public fun create(owner: address, nick: String, pfp: Option<address>, ctx: &mut TxContext) {
+    public fun create(owner: address, nick: String, pfp:  Option<address>, ctx: &mut TxContext) {
         let profile = Profile { id: object::new(ctx), owner, nick, pfp };
         transfer::transfer(profile, tx_context::sender(ctx));
     }
@@ -26,7 +21,7 @@ module race_sui::profile {
         profile: &mut Profile,
         owner: address,
         nick: String,
-        pfp: Option<address>,
+        mut pfp: Option<address>,
         ctx: &mut TxContext
     ) {
         assert!(tx_context::sender(ctx) == owner, EProfileOwnerMismatch);

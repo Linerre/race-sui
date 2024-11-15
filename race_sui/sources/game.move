@@ -1,14 +1,8 @@
 module race_sui::game {
-    use std::vector;
-    use std::option::{Self, Option};
     use std::string::{Self, String};
-
     use sui::bag::{Self, Bag};
     use sui::event;
-    use sui::object::{Self, ID, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
-    use sui::url::{Self, Url};
+    use sui::url::{Url};
 
     use race_sui::server::{Self, Server};
 
@@ -25,22 +19,21 @@ module race_sui::game {
     const EGameIsFull: u64 = 414;
 
     // === Structs ===
-    struct PlayerJoin has drop, store {
+    public struct PlayerJoin has drop, store {
         addr: address,
-        balance: u64,
         position: u64,
         access_version: u64,
         verify_key: String,
     }
 
-    struct ServerJoin has drop, store {
+    public struct ServerJoin has drop, store {
         addr: address,
         endpoint: Url,
         access_version: u64,
         verify_key: String,
     }
 
-    struct Vote has drop, store {
+    public struct Vote has drop, store {
         voter: address,
         votee: address,
         vote_type: u8,
@@ -48,24 +41,24 @@ module race_sui::game {
 
     // EntryType (replace with `enum` once sui Move supports it)
     // 0
-    struct Cash has drop, store{
+    public struct Cash has drop, store{
         min_deposit: u64,
         max_deposit: u64,
     }
 
     // 1
-    struct Ticket has drop, store {
+    public struct Ticket has drop, store {
         slot_id: u64,
         amount: u64,
     }
 
     // 2
-    struct Gating has drop, store {
+    public struct Gating has drop, store {
         collection: String,
     }
 
     /// On-chain game account
-    struct Game has key {
+    public struct Game has key {
         id: UID,
         /// the contract version, used for upgrade
         version: String,
@@ -92,7 +85,6 @@ module race_sui::game {
         /// game servers (max: 10)
         servers: vector<ServerJoin>,
         // TODO: data_len and data, use sui::bcs
-
         /// game votes
         votes: vector<Vote>,
         /// the time when the game gets unlocked
@@ -107,7 +99,7 @@ module race_sui::game {
         checkpoint_access_version: u64,
     }
 
-    struct GameMinted has copy, drop {
+    public struct GameMinted has copy, drop {
         game_id: ID,
         minted_by: address,
     }
@@ -187,7 +179,7 @@ module race_sui::game {
             servers: _,
             votes: _,
             unlock_time: _,
-            entry_type,
+            mut entry_type,
             recipient_addr: _,
             checkpoint: _,
             checkpoint_access_version: _,
@@ -216,12 +208,12 @@ module race_sui::game {
     ///
     /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
     /// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
-    public fun serve(game: &mut Game, server: &Server, verify_key: String, ctx: &mut TxContext) {
+    public fun serve(game: &mut Game, server: &Server, verify_key: String, _ctx: &mut TxContext) {
         let server_num = vector::length(&game.servers);
         assert!(server_num < MAX_SERVER_NUM, EServerNumberExceedsLimit);
 
         let server_addr = object::uid_to_address(server::uid(server));
-        let i = 0;
+        let mut i = 0;
         while (i < server_num) {
             let curr_server: &ServerJoin = vector::borrow(&game.servers, i);
             if (&curr_server.addr == server::owner(server)) abort EDuplicateServerJoin;
@@ -247,7 +239,7 @@ module race_sui::game {
         game: &mut Game,
         player_addr: address,
         position: u64,
-        balance: u64,
+        _balance: u64,
         amount: u64,
         verify_key: String
     ) {
@@ -257,27 +249,27 @@ module race_sui::game {
         assert!(player_num < max_players, EGameIsFull);
         assert!(position < max_players, EInvalidPosition);
 
-        let i = 0;
+        let mut i = 0;
         // position passed may have been taken and we need to check availability
-        let pos_taken = vector::empty<u64>();
+        let mut pos_taken = vector::empty<u64>();
         while (i < player_num) {
             let curr_player: &PlayerJoin = vector::borrow(&game.players, i);
             if (&curr_player.addr == &player_addr) {
-                abort EDuplicatePlayerJoin;
+                abort EDuplicatePlayerJoin
             };
             vector::push_back(&mut pos_taken, i);
             i = i + 1;
 
         };
 
-        let all_pos_taken = false;
-        let avail_pos = position;
+        let mut all_pos_taken = false;
+        let mut avail_pos = position;
         if (vector::contains(&pos_taken, &position)) {
-            let j = 0;
+            let mut j = 0;
             while (j < max_players) {
                 if (!vector::contains(&pos_taken, &j)) {
                     avail_pos = j;
-                    break;
+                    break
                 };
                 j = j + 1;
             };
@@ -289,7 +281,6 @@ module race_sui::game {
         let access_version = game.access_version + 1;
         let player_join =  PlayerJoin {
             addr: player_addr,
-            balance,
             position: avail_pos,
             access_version,
             verify_key,
@@ -299,7 +290,7 @@ module race_sui::game {
             // Check player's deposit
             let cash_type: &Cash = bag::borrow(&game.entry_type, 0);
             if (amount < cash_type.min_deposit || amount > cash_type.max_deposit) {
-                abort EInvalidDeposit;
+                abort EInvalidDeposit
             }
         };
         // TODO: add branches for other entry types
@@ -320,7 +311,7 @@ module race_sui::game {
         max_deposit: u64,
         ctx: &mut TxContext
     ): Game {
-        let entry_type = bag::new(ctx);
+        let mut entry_type = bag::new(ctx);
         bag::add(&mut entry_type, 0, Cash { min_deposit, max_deposit });
 
         Game {
