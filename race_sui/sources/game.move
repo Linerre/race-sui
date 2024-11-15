@@ -214,8 +214,8 @@ module race_sui::game {
     ///
     /// When a server joins an on-chain game, it can be either of the following cases:
     ///
-    /// 1. It is the first to join and thus it becomes the transactor
-    /// 2. It is the nth to join where n is in the range of [2,10] (inclusive)
+    /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
+    /// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
     public fun serve(game: &mut Game, server: &Server, verify_key: String, ctx: &mut TxContext) {
         let server_num = vector::length(&game.servers);
         assert!(server_num < MAX_SERVER_NUM, EServerNumberExceedsLimit);

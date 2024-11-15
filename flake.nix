@@ -2,10 +2,11 @@
   description = "Race Protocol on Sui blockchain";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     flake-utils.url = "github:numtide/flake-utils";
     sui-overlay = {
-      url = "github:DogLooksGood/sui-overlay";
+      # url = "github:DogLooksGood/sui-overlay";
+      url = "github:Linerre/sui-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-utils.follows = "flake-utils";

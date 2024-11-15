@@ -1,8 +1,11 @@
 [package]
 name = "race_sui"
+edition = "2024.beta"
+license = ""
+authors = ["Race Team"]
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.17.1" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "devnet-v1.36.0" }
 
 [addresses]
 race_sui = "0x0"
