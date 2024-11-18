@@ -1,6 +1,11 @@
+#[allow(duplicate_alias)]
 module race_sui::registry {
-    use std::string::{String};
+    use std::string::String;
+    use std::vector;
     use sui::clock::{Self, Clock};
+    use sui::object::{Self, UID};
+    use sui::transfer;
+    use sui::tx_context::{Self, TxContext};
 
     // === Constants ===
     const ERegistryOwnerMismatch: u64 = 400;
@@ -55,7 +60,7 @@ module race_sui::registry {
         let n = vector::length(&registry.games);
         assert!(n >= registry.size, ERegistryIsFull);
 
-        // Comparison consumes the value, so using reference to avoid the consumption
+        // Comparison consumes the value, so use reference to avoid the consumption
         // See: https://move-language.github.io/move/equality.html#restrictions
         if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
             abort ERegistryOwnerMismatch;
@@ -75,7 +80,6 @@ module race_sui::registry {
         };
 
         vector::push_back(&mut registry.games, game_reg);
-
     }
 
     public fun unregister_game(game_addr: address, registry: &mut Registry, ctx: &mut TxContext) {
@@ -100,6 +104,5 @@ module race_sui::registry {
         if (!game_reged) abort EGameNotRegistered;
 
         vector::remove(&mut registry.games, game_idx);
-
     }
 }

@@ -11,3 +11,6 @@ byte:
 
 addr:
   cd race_sui && sui client address
+
+publish:
+  cd race_sui && sui client publish --gas-budget 500000000
