@@ -13,4 +13,4 @@ addr:
   cd race_sui && sui client address
 
 publish:
-  cd race_sui && sui client publish --gas-budget 500000000
+  cd race_sui && sui client publish --force --gas-budget 500000000

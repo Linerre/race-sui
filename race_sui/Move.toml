@@ -1,7 +1,6 @@
 [package]
 name = "race_sui"
 edition = "2024.beta"
-license = ""
 authors = ["Race Team"]
 
 [dependencies]
