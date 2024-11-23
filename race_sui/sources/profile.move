@@ -2,12 +2,15 @@
 #[allow(duplicate_alias)]
 module race_sui::profile;
 
-use std::string::String;
+use std::string::{Self, String};
 use race_sui::profile_table::{ProfileTable, add_profile, profile_exists};
+
+const MAX_NICK_LEN: u64 = 16;
 
 // === Errors ===
 const EProfileOwnerMismatch: u64 = 415;
 const EProfileAlreadyExists: u64 = 416;
+const EProfileNickTooLong: u64 = 417;
 
 // === Structs ===
 public struct Profile has key, store {
@@ -15,7 +18,7 @@ public struct Profile has key, store {
     id: UID,
     /// Owner wallet address
     owner: address,
-    /// Player's on-chain nick name
+    /// Player's on-chain nick name, up to 16 chars/bytes
     nick: String,
     /// Player's profile image
     pfp: Option<address>,
@@ -33,6 +36,11 @@ public entry fun create_profile(
     assert!(
         !profile_exists(profile_table, sender),
         EProfileAlreadyExists
+    );
+
+    assert!(
+        string::length(&nick) > 0 && string::length(&nick) <= MAX_NICK_LEN,
+        EProfileNickTooLong
     );
 
     // record the new profile in the map

@@ -29,7 +29,13 @@
               nodejs_20
               nodePackages.pnpm
             ];
+
+            shellHook = ''
+            alias move="sui move"
+            '';
           };
+
+
         }
     );
 }
