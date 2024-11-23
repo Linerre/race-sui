@@ -2,21 +2,14 @@
 #[allow(duplicate_alias)]
 module race_sui::profile;
 
-use sui::table::{Self, Table};
 use std::string::String;
+use race_sui::profile_table::{ProfileTable, add_profile, profile_exists};
 
 // === Errors ===
 const EProfileOwnerMismatch: u64 = 415;
 const EProfileAlreadyExists: u64 = 416;
 
 // === Structs ===
-public struct ProfileTable has key {
-    /// Table's on-chain id
-    id: UID,
-    /// Table of player address to profile ID (converted from its UID)
-    addr_to_pid: Table<address, ID>,
-}
-
 public struct Profile has key, store {
     /// Profile unique ID
     id: UID,
@@ -26,16 +19,6 @@ public struct Profile has key, store {
     nick: String,
     /// Player's profile image
     pfp: Option<address>,
-}
-
-// === Module Initializer ===
-/// Called only once on module publish to create a shared table which
-/// stores the mapping from user addr to their on-chain profile
-fun init(ctx: &mut TxContext) {
-    transfer::share_object(ProfileTable {
-        id: object::new(ctx),
-        addr_to_pid: table::new(ctx),
-    });
 }
 
 // === Entry functions ===
@@ -48,18 +31,16 @@ public entry fun create_profile(
     let sender = ctx.sender();
 
     assert!(
-        !table::contains(&profile_table.addr_to_pid, sender),
+        !profile_exists(profile_table, sender),
         EProfileAlreadyExists
     );
 
-    // record the new profile in the map and copy the profile address
+    // record the new profile in the map
     let profile = Profile { id: object::new(ctx), owner: sender, nick, pfp };
-    table::add(
-        &mut profile_table.addr_to_pid,
-        sender, object::uid_to_inner(&profile.id)
-    );
-    let profile_addr = object::uid_to_address(&profile.id);
+    add_profile(profile_table, sender, object::uid_to_inner(&profile.id));
 
+    // copy newly created profile addr for return
+    let profile_addr = object::uid_to_address(&profile.id);
     transfer::transfer(profile, ctx.sender());
 
     profile_addr
@@ -80,5 +61,12 @@ public entry fun update_profile(
     };
 }
 
+// === Public-view functions ===
+public fun nick(self: &Profile): String {
+    self.nick
+}
 
+public fun pfp(self: &Profile): Option<address> {
+    self.pfp
+}
 // === Private Functions ===
