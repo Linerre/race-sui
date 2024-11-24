@@ -17,7 +17,6 @@ const EServerNumberExceedsLimit: u64 = 405;
 const EDuplicateServerJoin: u64 = 406;
 const EGameHasLeftPlayers: u64 = 407;
 const EGameOwnerMismatch: u64 = 408;
-const EPositionAlreadyTaken: u64 = 409;
 const EInvalidCashDeposit: u64 = 410;
 const EInvalidTicketAmount: u64 = 411;
 const EPositionOutOfRange: u64 = 412;
@@ -274,11 +273,11 @@ public entry fun serve(
     assert!(server_num < MAX_SERVER_NUM, EServerNumberExceedsLimit);
 
     // check duplicate server join
-    let server_addr = object::uid_to_address(server::uid(server));
+    let server_addr = server.addr();
     let mut i = 0;
     while (i < server_num) {
         let curr_server: &ServerJoin = vector::borrow(&game.servers, i);
-        if (&curr_server.addr == server::owner(server)) abort EDuplicateServerJoin;
+        if (curr_server.addr == server.owner()) abort EDuplicateServerJoin;
         i = i + 1;
     };
 
@@ -288,7 +287,7 @@ public entry fun serve(
         &mut game.servers,
         ServerJoin {
             addr: server_addr,
-            endpoint: server::endpoint(server),
+            endpoint: server.endpoint(),
             access_version,
             verify_key,
         }

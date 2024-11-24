@@ -6,7 +6,7 @@ use sui::package::{Self};
 use sui::table::{Self, Table};
 
 // === Structs ===
-/// A one-time-use capability to allow only the package publisher
+/// A admin capability to allow only the package publisher
 /// to init a profile table for once and transfer it to publisher
 public struct ProfileTableCap has key {
     id: UID
@@ -14,8 +14,8 @@ public struct ProfileTableCap has key {
 
 /// A map that stores the mapping between players and their profiles
 /// It is a singleton ensured by Sui's One-Time Witness pattern and
-/// 1. one player can have only one profile
-/// 2. only the publisher can delete this table
+/// 1. one player can have only one on-chain profile
+/// 2. only the package publisher can delete this table
 public struct ProfileTable has key {
     /// Table's on-chain id
     id: UID,

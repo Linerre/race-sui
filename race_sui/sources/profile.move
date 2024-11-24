@@ -5,7 +5,7 @@ module race_sui::profile;
 use std::string::{Self, String};
 use race_sui::profile_table::{ProfileTable, add_profile, profile_exists};
 
-const MAX_NICK_LEN: u64 = 16;
+const MAX_NICK_LEN: u64 = 33;
 
 // === Errors ===
 const EProfileOwnerMismatch: u64 = 415;
@@ -68,6 +68,10 @@ public entry fun update_profile(
         profile.pfp = pfp;
     };
 }
+
+// public fun get_profile(ptable: &ProfileTable, player: address): Profile {
+//
+// }
 
 // === Public-view functions ===
 public fun nick(self: &Profile): String {
