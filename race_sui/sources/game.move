@@ -39,7 +39,7 @@ public enum EntryLock has drop, store {
 
 public struct PlayerJoin has drop, store {
     addr: address,
-    position: u64,
+    position: u16,
     access_version: u64,
     verify_key: String,
 }
@@ -134,7 +134,7 @@ public entry fun create_cash_game(
     owner: address,
     recipient_addr: address,
     token_addr: address,
-    max_players: u64,
+    max_players: u16,
     data_len: u32,
     data: vector<u8>,
     min_deposit: u64,
@@ -164,7 +164,7 @@ public entry fun create_ticket_game(
     owner: address,
     recipient_addr: address,
     token_addr: address,
-    max_players: u64,
+    max_players: u16,
     data_len: u32,
     data: vector<u8>,
     amount: u64,
@@ -193,7 +193,7 @@ public entry fun create_gating_game(
     owner: address,
     recipient_addr: address,
     token_addr: address,
-    max_players: u64,
+    max_players: u16,
     data_len: u32,
     data: vector<u8>,
     collection: String,
@@ -298,7 +298,7 @@ public entry fun serve(
 public entry fun join(
     game: &mut Game,
     player_addr: address,
-    position: u64,
+    position: u16,
     settle_version: u64,
     join_amount: u64,
     verify_key: String
@@ -312,8 +312,8 @@ public entry fun join(
     // the given position may have been already taken so we need to check availability
     let mut i = 0;
     // record all the positions currently already taken
-    let mut pos_taken = vector::empty<u64>();
-    while (i < player_num) {
+    let mut pos_taken = vector::empty<u16>();
+    while (i < player_num as u64) {
         let curr_player: &PlayerJoin = vector::borrow(&game.players, i);
         if (curr_player.addr == player_addr) {
             abort EDuplicatePlayerJoin
@@ -380,11 +380,11 @@ public entry fun join(
 }
 
 // === Public-view functions ===
-public fun player_num(self: &Game): u64 {
-    vector::length(&self.players)
+public fun player_num(self: &Game): u16 {
+    vector::length(&self.players) as u16
 }
 
-public fun max_players(self: &Game): u64 {
+public fun max_players(self: &Game): u16 {
     self.max_players
 }
 
@@ -419,7 +419,7 @@ fun new_game(
     owner: address,
     recipient_addr: address,
     token_addr: address,
-    max_players: u64,
+    max_players: u16,
     data_len: u32,
     data: vector<u8>,
     ctx: &mut TxContext
