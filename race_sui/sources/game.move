@@ -96,7 +96,7 @@ public struct Game has key {
     /// a serial number, increased by 1 after each settlement
     settle_version: u64,
     /// game size
-    max_players: u64,
+    max_players: u16,
     /// game players
     players: vector<PlayerJoin>,
     /// players' deposits
