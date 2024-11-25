@@ -1,4 +1,3 @@
-#[allow(unused_use)]
 module race_sui::game;
 use std::string::{Self, String};
 
@@ -9,7 +8,6 @@ use sui::event;
 use sui::url::Url;
 
 use race_sui::server::{Self, Server};
-
 
 // === Constants ===
 const MAX_SERVER_NUM: u64 = 10;

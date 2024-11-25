@@ -6,7 +6,7 @@ use sui::clock::{Self, Clock};
 const ERegistryOwnerMismatch: u64 = 400;
 const ERegistryIsFull: u64 = 401;
 const ERegistryIsEmpty: u64 = 402;
-const EDuplicateGameRegistration: u64 = 403;
+const EGameAlreadyRegistered: u64 = 403;
 const EGameNotRegistered: u64 = 404;
 
 public struct GameReg has drop, store {
@@ -14,7 +14,9 @@ public struct GameReg has drop, store {
     title: String,
     /// on-chain game's object address
     addr: address,
-    bundle_addr: address,
+    /// game bundle address
+    bundle_addr: address,       // TODO: use arweave txid string
+    /// game registration timestamp
     reg_time: u64,
 }
 
@@ -24,32 +26,32 @@ public struct Registry has key {
     /// whether or not this registration center is private
     is_private: bool,
     /// number of games allowed for this registration center
-    size: u64,
+    size: u16,
     /// owner address
     owner: address,
     /// games registered in this center
     games: vector<GameReg>,
 }
 
-
-public fun create(
-    owner: address,
+/// Create an on-chain lobby
+public entry fun create_registry(
     is_private: bool,
-    size: u64,
+    size: u16,
     ctx: &mut TxContext
 ) {
     let registry = Registry {
         id: object::new(ctx),
         is_private,
         size,
-        owner,
+        owner: ctx.sender(),
         games: vector::empty<GameReg>(),
     };
 
-    transfer::transfer(registry, tx_context::sender(ctx));
+    transfer::transfer(registry, ctx.sender());
 }
 
-public fun register_game(
+/// Record a given game to a given on-chain lobby (registry)
+public entry fun register_game(
     game_addr: address,
     title: String,
     bundle_addr: address,
@@ -59,17 +61,15 @@ public fun register_game(
 ) {
 
     let n = vector::length(&registry.games);
-    assert!(n >= registry.size, ERegistryIsFull);
+    assert!(n >= registry.size as u64, ERegistryIsFull);
 
-    // Comparison consumes the value, so use reference to avoid the consumption
-    // See: https://move-language.github.io/move/equality.html#restrictions
-    if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
+    if (registry.is_private && ctx.sender() != registry.owner)
     abort ERegistryOwnerMismatch;
 
     let mut i = 0;
     while (i < n) {
         let curr_game: &GameReg = vector::borrow(&registry.games, i);
-        assert!(&curr_game.addr != &game_addr, EDuplicateGameRegistration);
+        assert!(curr_game.addr != game_addr, EGameAlreadyRegistered);
         i = i + 1;
     };
 
@@ -83,9 +83,14 @@ public fun register_game(
     vector::push_back(&mut registry.games, game_reg);
 }
 
-public fun unregister_game(game_addr: address, registry: &mut Registry, ctx: &mut TxContext) {
+/// Remove a given game from a given lobby (registry)
+public entry fun unregister_game(
+    game_addr: address,
+    registry: &mut Registry,
+    ctx: &mut TxContext
+) {
     assert!(vector::length(&registry.games) > 0, ERegistryIsEmpty);
-    if (registry.is_private && &tx_context::sender(ctx) != &registry.owner)
+    if (registry.is_private && ctx.sender() != registry.owner)
     abort ERegistryOwnerMismatch;
 
     let n = vector::length(&registry.games);
@@ -94,7 +99,7 @@ public fun unregister_game(game_addr: address, registry: &mut Registry, ctx: &mu
     let mut game_idx = 0;
     while (i < n) {
         let curr_game = vector::borrow(&registry.games, i);
-        if (&curr_game.addr == &game_addr) {
+        if (curr_game.addr == game_addr) {
             game_reged = true;
             game_idx = i;
             break
