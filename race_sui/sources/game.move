@@ -1,13 +1,13 @@
 module race_sui::game;
 use std::string::{Self, String};
 
-use sui::balance::{Self, Balance};
-use sui::coin::{Self, Coin};
-use sui::bag::{Self, Bag};
+// use sui::balance::{Self, Balance};
+// use sui::coin::{Self, Coin};
+// use sui::bag::{Self, Bag};
 use sui::event;
-use sui::url::Url;
+use sui::url::{Self, Url};
 
-use race_sui::server::{Self, Server};
+use race_sui::server::Server;
 
 // === Constants ===
 const MAX_SERVER_NUM: u64 = 10;
@@ -117,13 +117,21 @@ public struct Game has key {
     entry_lock: EntryLock,
 }
 
-public struct GameMinted has copy, drop {
-    game_id: ID,
-    minted_by: address,
+public struct GameNFT has key, store {
+    id: UID,
+    /// name for the game NFT
+    name: String,
+    description: String,        // up to 200 chars/bytes?
+    url: Url,                   // arweave url points to the game WASM
+    // TODO: add custom attributes
+    // cover: Url
 }
 
-// === Module Initializer ===
-
+public struct GameMinted has copy, drop {
+    game_id: ID,
+    creator: address,
+    name: String,
+}
 
 // === Entry functions ===
 public entry fun create_cash_game(
@@ -245,15 +253,28 @@ public entry fun close(game: Game, ctx: &mut TxContext) {
     object::delete(id);
 }
 
-// TODO: Only allow game owner to mint the game?
 /// Publish (mint) the game as NFT
-public entry fun publish(game_addr: address, ctx: &mut TxContext) {
-    let game_id = object::id_from_address(game_addr);
+public entry fun publish(
+    name: String,
+    description: String,
+    url: vector<u8>,
+    ctx: &mut TxContext
+) {
+    let sender = ctx.sender();
+    let nft = GameNFT {
+        id: object::new(ctx),
+        name,
+        description,
+        url: url::new_unsafe_from_bytes(url)
+    };
 
     event::emit(GameMinted {
-        game_id,
-        minted_by: ctx.sender(),
+        game_id: object::id(&nft),
+        creator: sender,
+        name: name
     });
+
+    transfer::public_transfer(nft, sender);
 }
 
 /// Server joins a game
@@ -408,6 +429,18 @@ public fun access_version(self: &Game): u64 {
 
 public fun settle_version(self: &Game): u64 {
     self.settle_version
+}
+
+public fun description(nft: &GameNFT): String {
+    nft.description
+}
+
+public fun url(nft: &GameNFT): Url {
+    nft.url
+}
+
+public fun name(nft: &GameNFT): String {
+    nft.name
 }
 
 // === Private functions ===
