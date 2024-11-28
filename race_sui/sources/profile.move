@@ -8,9 +8,9 @@ use race_sui::profile_table::{ProfileTable, add_profile, profile_exists};
 const MAX_NICK_LEN: u64 = 33;
 
 // === Errors ===
-const EProfileOwnerMismatch: u64 = 415;
-const EProfileAlreadyExists: u64 = 416;
-const EProfileNickTooLong: u64 = 417;
+const EProfileOwnerMismatch: u64 = 421;
+const EProfileAlreadyExists: u64 = 422;
+const EProfileNickTooLong: u64 = 423;
 
 // === Structs ===
 public struct Profile has key, store {

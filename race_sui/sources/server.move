@@ -6,7 +6,7 @@ use race_sui::server_table::{ServerTable, add_server, owner_exists};
 
 
 // === Error codes ===
-const EOwnerAlreadyRegisteredServer: u64 = 421;
+const EOwnerAlreadyRegisteredServer: u64 = 430;
 
 // === Struct ===
 public struct Server has key {

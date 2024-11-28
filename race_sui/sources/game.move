@@ -11,15 +11,15 @@ use race_sui::server::Server;
 
 // === Constants ===
 const MAX_SERVER_NUM: u64 = 10;
-const EServerNumberExceedsLimit: u64 = 405;
-const EDuplicateServerJoin: u64 = 406;
-const EGameHasLeftPlayers: u64 = 407;
-const EGameOwnerMismatch: u64 = 408;
-const EInvalidCashDeposit: u64 = 410;
-const EInvalidTicketAmount: u64 = 411;
-const EPositionOutOfRange: u64 = 412;
-const EDuplicatePlayerJoin: u64 = 413;
-const EGameIsFull: u64 = 414;
+const EServerNumberExceedsLimit: u64 = 410;
+const EDuplicateServerJoin: u64 = 411;
+const EGameHasLeftPlayers: u64 = 412;
+const EGameOwnerMismatch: u64 = 413;
+const EInvalidCashDeposit: u64 = 414;
+const EInvalidTicketAmount: u64 = 415;
+const EPositionOutOfRange: u64 = 416;
+const EDuplicatePlayerJoin: u64 = 417;
+const EGameIsFull: u64 = 418;
 
 // === Structs ===
 /// Only game onwer can delete a game
