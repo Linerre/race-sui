@@ -1,16 +1,19 @@
 set dotenv-load
 
 local:
-  RUST_LOG="off,sui_node=info" cargo run --bin sui-test-validator
+    RUST_LOG="off,sui_node=info" cargo run --bin sui-test-validator
 
 build:
-  cd race_sui && sui move build
+    cd race_sui && sui move build
 
 byte:
-  cd race_sui && sui client verify-bytecode-meter
+    cd race_sui && sui client verify-bytecode-meter
 
 addr:
-  cd race_sui && sui client address
+    cd race_sui && sui client address
 
 publish:
-  cd race_sui && sui client publish --force --gas-budget 500000000
+    cd race_sui && sui client publish --force --gas-budget 500000000
+
+test:
+    cd race_sui && sui move test
