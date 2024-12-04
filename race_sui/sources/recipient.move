@@ -1,12 +1,17 @@
-#[allow(unused_use)]
+/// A recipient is an on-chain object that acts like a treasury with slots
+/// Each slot has an owner (wallet address) and a specific coin/nft as the
+/// metric of the assets stored in it.  Only the owner can claim the assets
 module race_sui::recipient;
 
 use std::string::{Self, String};
 use sui::bcs::{Self, BCS};
+use sui::coin::{Self, Coin};
+use sui::balance::{Self, Balance};
 
 // === Error codes ===
 const EInvalidRecipientOwnerVariant: u64 = 440;
-const EInvalidRecipientOwnerIdentifier: u64 = 440;
+const EInvalidRecipientOwnerIdentifier: u64 = 441;
+const EInvalidRecipienType: u64 = 442;
 
 // === Structs ===
 public enum RecipientSlotType has copy, drop, store {
@@ -28,54 +33,70 @@ public struct RecipientSlotShare has copy, drop, store {
     claim_amount: u64,
 }
 
-public struct RecipientSlot has copy, drop, store {
-    /// recipient id
+public struct RecipientSlot<phantom T> has key, store {
+    id: UID,
+    /// recipient id, starting with 0, no dupliactes
     rid: u8,
     slot_type: RecipientSlotType,
     token_addr: address,
     shares: vector<RecipientSlotShare>,
-    balance: u64,
+    balance: Balance<T>,
 }
 
 /// An on-chain recipient object
 public struct Recipient has key, store {
     id: UID,
     cap_addr: Option<address>,
-    slots: vector<RecipientSlot>,
+    slots: vector<ID>,
 }
 
 // === Entry functions ===
+public entry fun create_recipient_slot<T>(
+    rid: u8,
+    token_addr: address,
+    raw_slot_type: vector<u8>,
+    raw_shares: vector<u8>,
+    recipient: &mut Recipient,
+    ctx: &mut TxContext
+) {
+    let mut slot_type_bcs = bcs::new(raw_slot_type);
+    let mut shares_bcs = bcs::new(raw_shares);
+    let slot_type = unpack_recipient_slot_type(&mut slot_type_bcs);
+    let shares = unpack_slot_shares(&mut shares_bcs);
+
+    let id = object::new(ctx);
+    let slot_id = object::uid_to_inner(&id);
+    let balance = balance::zero<T>();
+    let slot = RecipientSlot {
+        id,
+        rid,
+        slot_type,
+        token_addr,
+        shares,
+        balance
+    };
+
+    // record this slot in the given on-chain recipient
+    recipient.add_slot(slot_id);
+    // share the slot publicly
+    transfer::share_object(slot);
+}
+
+/// Allow anyone to deposit coins into the balance of a recipient slot
+public entry fun deposit_to_slot<T>(
+    slot: &mut RecipientSlot<T>,
+    coin: Coin<T>
+) {
+    let coin_balance = coin::into_balance(coin);
+    balance::join(&mut slot.balance, coin_balance);
+}
+
 public entry fun create_recipient(
     cap_addr: Option<address>,
-    bytes: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    let mut raw: BCS = bcs::new(bytes);
 
-    let mut slots = vector::empty<RecipientSlot>();
-    let slot_num = raw.peel_vec_length();
-
-    // loop to deserialize and construct each RecipientSlot
-    let mut i = 1;
-    while (i <= slot_num) {
-        let rid = raw.peel_u8();
-        let slot_type = if (raw.peel_u8() == 0) {
-            RecipientSlotType::Nft
-        } else {
-            RecipientSlotType::Token
-        };
-        let token_addr = raw.peel_address();
-
-        let shares = unpack_slot_shares(&mut raw);
-        let balance = raw.peel_u64();
-
-        vector::push_back(&mut slots, RecipientSlot {
-            rid, slot_type, token_addr, shares, balance
-        });
-
-        // move to next slot
-        i = i + 1;
-    };
+    let slots = vector::empty<ID>();
 
     let recipient = Recipient {
         id: object::new(ctx),
@@ -86,17 +107,73 @@ public entry fun create_recipient(
     transfer::share_object(recipient);
 }
 
-// public entry fun get_recipient() {}
+/// Claim stake from one slot
+public entry fun recipient_claim<T>(
+    receiver: address,
+    slot: &mut RecipientSlot<T>,
+    ctx: &mut TxContext,
+) {
+    let share_num = vector::length(&slot.shares);
+    let (total_weights,total_claimed) = calc_totals(&slot.shares, share_num);
 
-// public entry fun recipient_claim() {}
+    let mut i = 0;
+    let mut claim = 0;
+    while (i < share_num) {
+        let share: &mut RecipientSlotShare =
+            vector::borrow_mut(&mut slot.shares, i);
+        match (&share.owner) {
+            RecipientSlotOwner::Assigned { addr } if (addr == receiver) => {
+                claim  = (total_claimed * (share.weights as u64) / (total_weights as u64)) - share.claim_amount;
+                share.claim_amount = share.claim_amount + claim;
+                break
+            },
+            _ => ()
+        };
+        i = i + 1;
+    };
+
+    if (claim > 0) {
+        // split from balance and create a new coin for transfer
+        let claim_balance = balance::split(&mut slot.balance, claim);
+        let claim_coin = coin::from_balance(claim_balance, ctx);
+        transfer::public_transfer(claim_coin, receiver);
+    }
+}
 
 // === Private functions ===
-/// Deserialize from raw bytes a vector of RecipientSlotShare structs
+fun add_slot(recipient: &mut Recipient, slot_id: ID) {
+    vector::push_back(&mut recipient.slots, slot_id);
+}
+
+fun calc_totals(
+    shares: &vector<RecipientSlotShare>,
+    share_num: u64
+): (u16, u64) {
+    let mut i = 0;
+    let mut total_weights = 0;
+    let mut total_claimed = 0;
+    while (i < share_num) {
+        let share: &RecipientSlotShare = vector::borrow(shares, i);
+        total_weights = total_weights + share.weights;
+        total_claimed = total_claimed + share.claim_amount;
+        i = i + 1;
+    };
+
+    (total_weights, total_claimed)
+}
+
+fun unpack_recipient_slot_type(raw: &mut BCS): RecipientSlotType {
+    match (raw.peel_vec_length()) {
+        0 => RecipientSlotType::Nft,
+        1 => RecipientSlotType::Token,
+        _ => abort EInvalidRecipienType
+    }
+}
+
+/// Deserialize to get a vector of RecipientSlotShare structs
 fun unpack_slot_shares(raw: &mut BCS): vector<RecipientSlotShare> {
-    use std::debug;
     let mut shares = vector::empty<RecipientSlotShare>();
     let shares_num: u64 = raw.peel_vec_length();
-    debug::print(&shares_num);
     let mut j = 1u64;
 
     while(j <= shares_num) {
@@ -112,10 +189,7 @@ fun unpack_slot_shares(raw: &mut BCS): vector<RecipientSlotShare> {
             });
 
         // move to next slot share
-        debug::print(&shares);
-        debug::print(&j);
         j = j + 1;
-        debug::print(&j);
     };
 
     shares
@@ -144,6 +218,27 @@ fun unpack_recipient_slot_owner(raw: &mut BCS): RecipientSlotOwner {
     }
 }
 
+// === Tests ===
+#[test]
+fun test_unpack_recipient_slot_type() {
+    use std::bcs as stdbcs;
+    // see https://docs.sui.io/guides/developer/dev-cheat-sheet#testing
+    use sui::test_utils as tutils;
+
+    let type1 = RecipientSlotType::Nft;
+    let type2 = RecipientSlotType::Token;
+
+    let bytes1 = stdbcs::to_bytes(&type1);
+    let bytes2 = stdbcs::to_bytes(&type2);
+
+    let mut raw1 = bcs::new(bytes1);
+    let mut raw2 = bcs::new(bytes2);
+
+    tutils::assert_eq(unpack_recipient_slot_type(&mut raw1), type1);
+    tutils::assert_eq(unpack_recipient_slot_type(&mut raw2), type2);
+}
+
+
 #[test]
 fun test_unpack_recipient_slot_owner() {
     use std::bcs as stdbcs;
@@ -166,7 +261,7 @@ fun test_unpack_recipient_slot_owner() {
 }
 
 #[test]
-fun test_unpack_recipient_slot() {
+fun test_unpack_recipient_slot_share() {
     use std::bcs as stdbcs;
     use std::debug;
 

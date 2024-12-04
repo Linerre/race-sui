@@ -8,9 +8,7 @@ use sui::table::{Self, Table};
 // === Structs ===
 /// A admin capability to allow only the package publisher
 /// to init a profile table for once and transfer it to publisher
-public struct ProfileTableCap has key {
-    id: UID
-}
+public struct ProfileTableCap has key { id: UID }
 
 /// A map that stores the mapping between players and their profiles
 /// It is a singleton ensured by Sui's One-Time Witness pattern and
@@ -47,7 +45,6 @@ fun init(otw: PROFILE_TABLE, ctx: &mut TxContext) {
 
     transfer::share_object(ptable);
 }
-
 
 // === Methods for mutating and viewing profile table ===
 public fun profile_exists(ptable: &ProfileTable, player: address): bool {
