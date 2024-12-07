@@ -12,8 +12,15 @@ use sui::balance::{Self, Balance};
 const EInvalidRecipientOwnerVariant: u64 = 440;
 const EInvalidRecipientOwnerIdentifier: u64 = 441;
 const EInvalidRecipienType: u64 = 442;
+const ESlotOwnerIdentifierTooLong: u64 = 443;
+const ESlotOwnerIdentifierEmtpy: u64 = 444;
 
 // === Structs ===
+/// For hot potato pattern, passed through each slot creation process
+public struct RecipientBuilder {
+    slot_ids: vector<ID>
+}
+
 public enum RecipientSlotType has copy, drop, store {
     Nft,
     Token,
@@ -47,18 +54,22 @@ public struct RecipientSlot<phantom T> has key, store {
 public struct Recipient has key, store {
     id: UID,
     cap_addr: Option<address>,
-    slots: vector<ID>,
+    slot_ids: vector<ID>,
 }
 
-// === Entry functions ===
-public entry fun create_recipient_slot<T>(
+// ===  Public functions ===
+public fun new_recipient_builder(): RecipientBuilder {
+    RecipientBuilder { slot_ids: vector::empty<ID>() }
+}
+
+public fun create_recipient_slot<T>(
     rid: u8,
     token_addr: address,
     raw_slot_type: vector<u8>,
     raw_shares: vector<u8>,
-    recipient: &mut Recipient,
+    recipient_builder: RecipientBuilder,
     ctx: &mut TxContext
-) {
+): RecipientBuilder {
     let mut slot_type_bcs = bcs::new(raw_slot_type);
     let mut shares_bcs = bcs::new(raw_shares);
     let slot_type = unpack_recipient_slot_type(&mut slot_type_bcs);
@@ -76,10 +87,30 @@ public entry fun create_recipient_slot<T>(
         balance
     };
 
-    // record this slot in the given on-chain recipient
-    recipient.add_slot(slot_id);
     // share the slot publicly
     transfer::share_object(slot);
+
+    // reconstruct the builder and pass it on
+    let RecipientBuilder { mut slot_ids } = recipient_builder;
+    vector::push_back(&mut slot_ids, slot_id);
+    RecipientBuilder { slot_ids }
+}
+
+public fun create_recipient(
+    cap_addr: Option<address>,
+    recipient_builder: RecipientBuilder,
+    ctx: &mut TxContext,
+) {
+    // consume the hot potato
+    let RecipientBuilder { slot_ids } = recipient_builder;
+
+    let recipient = Recipient {
+        id: object::new(ctx),
+        cap_addr,
+        slot_ids
+    };
+
+    transfer::share_object(recipient);
 }
 
 /// Allow anyone to deposit coins into the balance of a recipient slot
@@ -91,21 +122,6 @@ public entry fun deposit_to_slot<T>(
     balance::join(&mut slot.balance, coin_balance);
 }
 
-public entry fun create_recipient(
-    cap_addr: Option<address>,
-    ctx: &mut TxContext,
-) {
-
-    let slots = vector::empty<ID>();
-
-    let recipient = Recipient {
-        id: object::new(ctx),
-        cap_addr,
-        slots
-    };
-
-    transfer::share_object(recipient);
-}
 
 /// Claim stake from one slot
 public entry fun recipient_claim<T>(
@@ -141,10 +157,6 @@ public entry fun recipient_claim<T>(
 }
 
 // === Private functions ===
-fun add_slot(recipient: &mut Recipient, slot_id: ID) {
-    vector::push_back(&mut recipient.slots, slot_id);
-}
-
 fun calc_totals(
     shares: &vector<RecipientSlotShare>,
     share_num: u64
@@ -204,6 +216,11 @@ fun unpack_recipient_slot_owner(raw: &mut BCS): RecipientSlotOwner {
             let mut ret: Option<String> =
                 string::try_utf8(raw.peel_vec_u8());
             if (ret.is_none()) abort EInvalidRecipientOwnerIdentifier;
+
+            // check slot owner identifier string
+            let identi = option::borrow(&ret);
+            assert!(!string::is_empty(identi), ESlotOwnerIdentifierEmtpy);
+            assert!(string::length(identi) <= 16, ESlotOwnerIdentifierTooLong);
 
             RecipientSlotOwner::Unassigned {
                 identifier: ret.extract()
