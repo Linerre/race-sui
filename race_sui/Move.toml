@@ -4,7 +4,7 @@ edition = "2024.beta"
 authors = ["Race Team"]
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "devnet-v1.37.0" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "devnet-v1.39.0" }
 
 [addresses]
 race_sui = "0x0"

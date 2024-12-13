@@ -55,6 +55,7 @@ public struct PlayerDeposit has drop, store {
     settle_version: u64,
 }
 
+#[allow(unused_field)]
 public struct Vote has drop, store {
     voter: address,
     votee: address,

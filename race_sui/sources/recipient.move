@@ -1,12 +1,16 @@
 /// A recipient is an on-chain object that acts like a treasury with slots
 /// Each slot has an owner (wallet address) and a specific coin/nft as the
 /// metric of the assets stored in it.  Only the owner can claim the assets
+#[allow(unused_use)]
 module race_sui::recipient;
 
 use std::string::{Self, String};
+use sui::address;
 use sui::bcs::{Self, BCS};
-use sui::coin::{Self, Coin};
 use sui::balance::{Self, Balance};
+use sui::coin::{Self, Coin};
+use sui::sui::SUI;
+use std::debug;
 
 // === Error codes ===
 const EInvalidRecipientOwnerVariant: u64 = 440;
@@ -33,6 +37,12 @@ public enum RecipientSlotOwner has copy, drop, store {
     Assigned { addr: address }
 }
 
+public struct RecipientSlotShareInit has copy, drop, store {
+    owner: RecipientSlotOwner,
+    weights: u16,
+    // claim amount defaults to 0 at the beginning
+}
+
 public struct RecipientSlotShare has copy, drop, store {
     owner: RecipientSlotOwner,
     weights: u16,
@@ -42,8 +52,7 @@ public struct RecipientSlotShare has copy, drop, store {
 
 public struct RecipientSlot<phantom T> has key, store {
     id: UID,
-    /// recipient id, starting with 0, no dupliactes
-    rid: u8,
+    sid: u8,                // slot id, starting with 0, no dupliactes
     slot_type: RecipientSlotType,
     token_addr: address,
     shares: vector<RecipientSlotShare>,
@@ -62,25 +71,47 @@ public fun new_recipient_builder(): RecipientBuilder {
     RecipientBuilder { slot_ids: vector::empty<ID>() }
 }
 
-public fun create_recipient_slot<T>(
-    rid: u8,
+public fun create_slot_share(
+    owner_type: u8,           // 0: unassigned, 1: assgined
+    owner_info: String,       // identifier or address in ascii string
+    weights: u16,
+): RecipientSlotShare {
+    let owner = match (owner_type) {
+        0 => RecipientSlotOwner::Unassigned { identifier: owner_info },
+        1 => {
+            let bytes = string::into_bytes(owner_info);
+            let addr = address::from_bytes(bytes);
+            RecipientSlotOwner::Assigned { addr }
+        },
+        _ => abort EInvalidRecipientOwnerVariant
+    };
+
+    RecipientSlotShare {
+        owner,
+        weights,
+        claim_amount: 0
+    }
+}
+
+public fun create_recipient_slot(
+    sid: u8,                    // slot id
     token_addr: address,
-    raw_slot_type: vector<u8>,
-    raw_shares: vector<u8>,
-    recipient_builder: RecipientBuilder,
+    slot_type_info: u8,
+    shares: vector<RecipientSlotShare>,
+    // recipient_builder: RecipientBuilder,
     ctx: &mut TxContext
-): RecipientBuilder {
-    let mut slot_type_bcs = bcs::new(raw_slot_type);
-    let mut shares_bcs = bcs::new(raw_shares);
-    let slot_type = unpack_recipient_slot_type(&mut slot_type_bcs);
-    let shares = unpack_slot_shares(&mut shares_bcs);
+) {
+
+    let slot_type = create_slot_type(slot_type_info);
 
     let id = object::new(ctx);
-    let slot_id = object::uid_to_inner(&id);
-    let balance = balance::zero<T>();
+    // let slot_id = object::uid_to_inner(&id);
+    let balance = balance::zero<SUI>();
+    // let shares = convert_to_shares(shares_init);
+    debug::print(&slot_type);
     let slot = RecipientSlot {
         id,
-        rid,
+        sid,
         slot_type,
         token_addr,
         shares,
@@ -91,9 +122,9 @@ public fun create_recipient_slot<T>(
     transfer::share_object(slot);
 
     // reconstruct the builder and pass it on
-    let RecipientBuilder { mut slot_ids } = recipient_builder;
-    vector::push_back(&mut slot_ids, slot_id);
-    RecipientBuilder { slot_ids }
+    // let RecipientBuilder { mut slot_ids } = recipient_builder;
+    // vector::push_back(&mut slot_ids, slot_id);
+    // RecipientBuilder { slot_ids }
 }
 
 public fun create_recipient(
@@ -157,6 +188,14 @@ public entry fun recipient_claim<T>(
 }
 
 // === Private functions ===
+fun create_slot_type(slot_type: u8): RecipientSlotType {
+    match (slot_type) {
+        0 => RecipientSlotType::Nft,
+        1 => RecipientSlotType::Token,
+        _ => abort EInvalidRecipienType
+    }
+}
+
 fun calc_totals(
     shares: &vector<RecipientSlotShare>,
     share_num: u64
@@ -174,6 +213,7 @@ fun calc_totals(
     (total_weights, total_claimed)
 }
 
+#[allow(unused_function)]
 fun unpack_recipient_slot_type(raw: &mut BCS): RecipientSlotType {
     match (raw.peel_vec_length()) {
         0 => RecipientSlotType::Nft,
@@ -182,7 +222,33 @@ fun unpack_recipient_slot_type(raw: &mut BCS): RecipientSlotType {
     }
 }
 
+#[allow(unused_function)]
+fun convert_to_shares(
+    share_inits: vector<RecipientSlotShareInit>
+): vector<RecipientSlotShare> {
+    let mut shares = vector::empty<RecipientSlotShare>();
+    let mut i = 0;
+    let n = vector::length(&share_inits);
+    while (i < n) {
+        let si = *vector::borrow(&share_inits, i);
+        let RecipientSlotShareInit { owner, weights } = si;
+
+        // check unassgined owner identifier
+        // match(&owner) {
+        //     RecipientSlotOwner::Assigned => (),
+        //
+        // }
+        vector::push_back(
+            &mut shares,
+            RecipientSlotShare { owner, weights, claim_amount: 0}
+        );
+        i = i + 1;
+    };
+    shares
+}
+
 /// Deserialize to get a vector of RecipientSlotShare structs
+#[allow(unused_function)]
 fun unpack_slot_shares(raw: &mut BCS): vector<RecipientSlotShare> {
     let mut shares = vector::empty<RecipientSlotShare>();
     let shares_num: u64 = raw.peel_vec_length();
@@ -200,13 +266,13 @@ fun unpack_slot_shares(raw: &mut BCS): vector<RecipientSlotShare> {
                 claim_amount
             });
 
-        // move to next slot share
         j = j + 1;
     };
 
     shares
 }
 
+#[allow(unused_function)]
 fun unpack_recipient_slot_owner(raw: &mut BCS): RecipientSlotOwner {
     // variant index is ULEB128 32-bit unsiged integer per BCS spec:
     // https://github.com/diem/bcs?tab=readme-ov-file#externally-tagged-enumerations
@@ -280,7 +346,6 @@ fun test_unpack_recipient_slot_owner() {
 #[test]
 fun test_unpack_recipient_slot_share() {
     use std::bcs as stdbcs;
-    use std::debug;
 
     let addr1 = @0xCAFE;
     let addr2 = @0xFACE;
