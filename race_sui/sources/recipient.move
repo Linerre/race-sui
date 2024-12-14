@@ -19,35 +19,33 @@ const ESlotOwnerIdentifierTooLong: u64 = 443;
 const ESlotOwnerIdentifierEmtpy: u64 = 444;
 
 // === Structs ===
-/// For hot potato pattern, passed through each slot creation process
-public struct RecipientBuilder {
-    slot_ids: vector<ID>
-}
-
 public enum RecipientSlotType has copy, drop, store {
     Nft,
     Token,
 }
 
 public enum RecipientSlotOwner has copy, drop, store {
-    /// string may be a game role
+    // string represents a game role
     Unassigned { identifier: String },
-    /// address is the owner's account addr
+    // address is the owner's addr
     Assigned { addr: address }
 }
 
 public struct RecipientSlotShare has copy, drop, store {
     owner: RecipientSlotOwner,
     weights: u16,
-    /// The total amount a recipient has claimed in the past
+    // total amount a recipient has claimed in the past, initially 0
     claim_amount: u64,
 }
 
+/// One recipient slot which, once created, has a specific COIN associated
+/// `token_addr` is the full path to this coin's struct, e.g., 0x02::sui::SUI
+/// `sid` is the slot id used in game, starting at 0 and no duplicates
 public struct RecipientSlot<phantom T> has key, store {
     id: UID,
-    sid: u8,                // slot id, starting with 0, no dupliactes
+    sid: u8,
     slot_type: RecipientSlotType,
-    token_addr: String,         // e.g. "0x02::sui::SUI"
+    token_addr: String,
     shares: vector<RecipientSlotShare>,
     balance: Balance<T>,
 }
@@ -59,6 +57,11 @@ public struct Recipient has key, store {
     slot_ids: vector<ID>,
 }
 
+/// For hot potato pattern, passed through each slot creation process
+public struct RecipientBuilder {
+    slot_ids: vector<ID>
+}
+
 // ===  Public functions ===
 public fun new_recipient_builder(): RecipientBuilder {
     RecipientBuilder { slot_ids: vector::empty<ID>() }
@@ -66,7 +69,7 @@ public fun new_recipient_builder(): RecipientBuilder {
 
 public fun create_slot_share(
     owner_type: u8,           // 0: unassigned, 1: assgined
-    owner_info: String,       // identifier or address in ascii string
+    owner_info: String,       // identifier or address in string
     weights: u16,
 ): RecipientSlotShare {
     let owner = match (owner_type) {
@@ -95,17 +98,16 @@ public fun create_recipient_slot<T>(
     token_addr: String,
     slot_type_info: u8,
     shares: vector<RecipientSlotShare>,
-    // recipient_builder: RecipientBuilder,
+    recipient_builder: RecipientBuilder,
     ctx: &mut TxContext
-) {
+): RecipientBuilder {
 
     let slot_type = create_slot_type(slot_type_info);
 
     let id = object::new(ctx);
-    // let slot_id = object::uid_to_inner(&id);
+    let slot_id = object::uid_to_inner(&id);
     let balance = balance::zero<T>();
-    // let shares = convert_to_shares(shares_init);
-    debug::print(&slot_type);
+
     let slot = RecipientSlot {
         id,
         sid,
@@ -119,9 +121,9 @@ public fun create_recipient_slot<T>(
     transfer::share_object(slot);
 
     // reconstruct the builder and pass it on
-    // let RecipientBuilder { mut slot_ids } = recipient_builder;
-    // vector::push_back(&mut slot_ids, slot_id);
-    // RecipientBuilder { slot_ids }
+    let RecipientBuilder { mut slot_ids } = recipient_builder;
+    vector::push_back(&mut slot_ids, slot_id);
+    RecipientBuilder { slot_ids }
 }
 
 public fun create_recipient(
