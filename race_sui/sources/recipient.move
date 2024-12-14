@@ -14,7 +14,6 @@ use std::debug;
 
 // === Error codes ===
 const EInvalidRecipientOwnerVariant: u64 = 440;
-const EInvalidRecipientOwnerIdentifier: u64 = 441;
 const EInvalidRecipienType: u64 = 442;
 const ESlotOwnerIdentifierTooLong: u64 = 443;
 const ESlotOwnerIdentifierEmtpy: u64 = 444;
@@ -37,12 +36,6 @@ public enum RecipientSlotOwner has copy, drop, store {
     Assigned { addr: address }
 }
 
-public struct RecipientSlotShareInit has copy, drop, store {
-    owner: RecipientSlotOwner,
-    weights: u16,
-    // claim amount defaults to 0 at the beginning
-}
-
 public struct RecipientSlotShare has copy, drop, store {
     owner: RecipientSlotOwner,
     weights: u16,
@@ -54,7 +47,7 @@ public struct RecipientSlot<phantom T> has key, store {
     id: UID,
     sid: u8,                // slot id, starting with 0, no dupliactes
     slot_type: RecipientSlotType,
-    token_addr: address,
+    token_addr: String,         // e.g. "0x02::sui::SUI"
     shares: vector<RecipientSlotShare>,
     balance: Balance<T>,
 }
@@ -77,7 +70,11 @@ public fun create_slot_share(
     weights: u16,
 ): RecipientSlotShare {
     let owner = match (owner_type) {
-        0 => RecipientSlotOwner::Unassigned { identifier: owner_info },
+        0 => {
+            assert!(!string::is_empty(&owner_info), ESlotOwnerIdentifierEmtpy);
+            assert!(string::length(&owner_info) <= 16, ESlotOwnerIdentifierTooLong);
+            RecipientSlotOwner::Unassigned { identifier: owner_info }
+        },
         1 => {
             let bytes = string::into_bytes(owner_info);
             let addr = address::from_bytes(bytes);
@@ -93,9 +90,9 @@ public fun create_slot_share(
     }
 }
 
-public fun create_recipient_slot(
+public fun create_recipient_slot<T>(
     sid: u8,                    // slot id
-    token_addr: address,
+    token_addr: String,
     slot_type_info: u8,
     shares: vector<RecipientSlotShare>,
     // recipient_builder: RecipientBuilder,
@@ -106,7 +103,7 @@ public fun create_recipient_slot(
 
     let id = object::new(ctx);
     // let slot_id = object::uid_to_inner(&id);
-    let balance = balance::zero<SUI>();
+    let balance = balance::zero<T>();
     // let shares = convert_to_shares(shares_init);
     debug::print(&slot_type);
     let slot = RecipientSlot {
@@ -213,167 +210,4 @@ fun calc_totals(
     (total_weights, total_claimed)
 }
 
-#[allow(unused_function)]
-fun unpack_recipient_slot_type(raw: &mut BCS): RecipientSlotType {
-    match (raw.peel_vec_length()) {
-        0 => RecipientSlotType::Nft,
-        1 => RecipientSlotType::Token,
-        _ => abort EInvalidRecipienType
-    }
-}
-
-#[allow(unused_function)]
-fun convert_to_shares(
-    share_inits: vector<RecipientSlotShareInit>
-): vector<RecipientSlotShare> {
-    let mut shares = vector::empty<RecipientSlotShare>();
-    let mut i = 0;
-    let n = vector::length(&share_inits);
-    while (i < n) {
-        let si = *vector::borrow(&share_inits, i);
-        let RecipientSlotShareInit { owner, weights } = si;
-
-        // check unassgined owner identifier
-        // match(&owner) {
-        //     RecipientSlotOwner::Assigned => (),
-        //
-        // }
-        vector::push_back(
-            &mut shares,
-            RecipientSlotShare { owner, weights, claim_amount: 0}
-        );
-        i = i + 1;
-    };
-    shares
-}
-
-/// Deserialize to get a vector of RecipientSlotShare structs
-#[allow(unused_function)]
-fun unpack_slot_shares(raw: &mut BCS): vector<RecipientSlotShare> {
-    let mut shares = vector::empty<RecipientSlotShare>();
-    let shares_num: u64 = raw.peel_vec_length();
-    let mut j = 1u64;
-
-    while(j <= shares_num) {
-        let owner = unpack_recipient_slot_owner(raw);
-        let weights = raw.peel_u16();
-        let claim_amount = raw.peel_u64();
-        vector::push_back(
-            &mut shares,
-            RecipientSlotShare {
-                owner,
-                weights,
-                claim_amount
-            });
-
-        j = j + 1;
-    };
-
-    shares
-}
-
-#[allow(unused_function)]
-fun unpack_recipient_slot_owner(raw: &mut BCS): RecipientSlotOwner {
-    // variant index is ULEB128 32-bit unsiged integer per BCS spec:
-    // https://github.com/diem/bcs?tab=readme-ov-file#externally-tagged-enumerations
-    let variant_type = raw.peel_vec_length();
-    match (variant_type) {
-        0 => {
-            let mut ret: Option<String> =
-                string::try_utf8(raw.peel_vec_u8());
-            if (ret.is_none()) abort EInvalidRecipientOwnerIdentifier;
-
-            // check slot owner identifier string
-            let identi = option::borrow(&ret);
-            assert!(!string::is_empty(identi), ESlotOwnerIdentifierEmtpy);
-            assert!(string::length(identi) <= 16, ESlotOwnerIdentifierTooLong);
-
-            RecipientSlotOwner::Unassigned {
-                identifier: ret.extract()
-            }
-        },
-        1 => {
-            RecipientSlotOwner::Assigned {
-                addr: raw.peel_address()
-            }
-        },
-        _ => abort EInvalidRecipientOwnerVariant
-    }
-}
-
 // === Tests ===
-#[test]
-fun test_unpack_recipient_slot_type() {
-    use std::bcs as stdbcs;
-    // see https://docs.sui.io/guides/developer/dev-cheat-sheet#testing
-    use sui::test_utils as tutils;
-
-    let type1 = RecipientSlotType::Nft;
-    let type2 = RecipientSlotType::Token;
-
-    let bytes1 = stdbcs::to_bytes(&type1);
-    let bytes2 = stdbcs::to_bytes(&type2);
-
-    let mut raw1 = bcs::new(bytes1);
-    let mut raw2 = bcs::new(bytes2);
-
-    tutils::assert_eq(unpack_recipient_slot_type(&mut raw1), type1);
-    tutils::assert_eq(unpack_recipient_slot_type(&mut raw2), type2);
-}
-
-
-#[test]
-fun test_unpack_recipient_slot_owner() {
-    use std::bcs as stdbcs;
-    let addr1 = @0xCAFE;
-    let addr2 = @0xFACE;
-
-    let share1 = RecipientSlotOwner::Assigned { addr: addr1 };
-    let share2 = RecipientSlotOwner::Unassigned {
-            identifier: string::utf8(b"Race")
-    };
-
-    let bytes1 = stdbcs::to_bytes(&share1);
-    let bytes2 = stdbcs::to_bytes(&share2);
-
-    let mut raw1 = bcs::new(bytes1);
-    let mut raw2 = bcs::new(bytes2);
-
-    assert!(unpack_recipient_slot_owner(&mut raw1) == share1);
-    assert!(unpack_recipient_slot_owner(&mut raw2) == share2);
-}
-
-#[test]
-fun test_unpack_recipient_slot_share() {
-    use std::bcs as stdbcs;
-
-    let addr1 = @0xCAFE;
-    let addr2 = @0xFACE;
-
-    let shares = vector<RecipientSlotShare>[
-        RecipientSlotShare {
-            owner: RecipientSlotOwner::Assigned { addr: addr1 },
-            weights: 20,
-            claim_amount: 0
-        },
-        RecipientSlotShare {
-            owner: RecipientSlotOwner::Assigned { addr: addr2 },
-            weights: 30,
-            claim_amount: 10
-        },
-        RecipientSlotShare {
-            owner: RecipientSlotOwner::Unassigned {
-                identifier: string::utf8(b"Race")
-            },
-            weights: 50,
-            claim_amount: 60
-        }
-    ];
-
-    debug::print(&shares);
-
-    let bytes = stdbcs::to_bytes(&shares);
-    let mut raw = bcs::new(bytes);
-
-    assert!(unpack_slot_shares(&mut raw) == shares);
-}
