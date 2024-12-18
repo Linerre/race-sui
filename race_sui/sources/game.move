@@ -22,7 +22,7 @@ const EDuplicatePlayerJoin: u64 = 417;
 const EGameIsFull: u64 = 418;
 
 // === Structs ===
-/// Only game onwer can delete a game
+/// Only game owner can delete a game
 public struct GameOwnerCap has key {
     id: UID,
 }
@@ -80,16 +80,17 @@ public struct Game has key {
     version: String,
     /// game name displayed on chain
     title: String,
-    /// addr to the game core logic program (WASM) on Arweave
+    // TODO: may simplify this to a string arweave tx id
+    /// AccountAddress to the game core logic program (WASM) on Arweave
     bundle_addr: address,
-    /// game owner that creates this game object
+    /// SuiAddress to the game owner that creates this game object
     owner: address,
-    /// the recipient account
+    /// the recipient account address (AccountAddress in SDK)
     recipient_addr: address,
-    /// addr of the frist server joined the game,
+    /// SuiAddress of the frist server joined the game,
     transactor_addr: Option<address>,
-    /// token stake used in this game
-    token_addr: address,
+    /// token type used in this game, e.g. "0x02::sui::SUI"
+    token_addr: String,
     /// a serial number, increased by 1 after each PlayerJoin or ServerJoin
     access_version: u64,
     /// a serial number, increased by 1 after each settlement
