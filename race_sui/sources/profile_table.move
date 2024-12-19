@@ -32,7 +32,7 @@ fun init(otw: PROFILE_TABLE, ctx: &mut TxContext) {
     // create and send the Publisher object to the publisher
     package::claim_and_keep(otw, ctx);
 
-    // create and send profile cap to the publisher
+   // create and send profile cap to the publisher
     let ptable_cap = ProfileTableCap { id: object::new(ctx) };
     transfer::transfer(ptable_cap, ctx.sender());
 

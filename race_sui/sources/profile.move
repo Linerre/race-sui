@@ -13,7 +13,7 @@ const EProfileAlreadyExists: u64 = 422;
 const EProfileNickTooLong: u64 = 423;
 
 // === Structs ===
-public struct Profile has key, store {
+public struct PlayerProfile has key, store {
     /// Profile unique ID
     id: UID,
     /// Owner wallet address
@@ -44,7 +44,7 @@ public entry fun create_profile(
     );
 
     // record the new profile in the map
-    let profile = Profile { id: object::new(ctx), owner: sender, nick, pfp };
+    let profile = PlayerProfile { id: object::new(ctx), owner: sender, nick, pfp };
     add_profile(profile_table, sender, object::uid_to_inner(&profile.id));
 
     // copy newly created profile addr for return
@@ -55,7 +55,7 @@ public entry fun create_profile(
 }
 
 public entry fun update_profile(
-    profile: &mut Profile,
+    profile: &mut PlayerProfile,
     nick: String,
     pfp: Option<address>,
     ctx: &TxContext
@@ -74,11 +74,11 @@ public entry fun update_profile(
 // }
 
 // === Public-view functions ===
-public fun nick(self: &Profile): String {
+public fun nick(self: &PlayerProfile): String {
     self.nick
 }
 
-public fun pfp(self: &Profile): Option<address> {
+public fun pfp(self: &PlayerProfile): Option<address> {
     self.pfp
 }
 // === Private Functions ===
