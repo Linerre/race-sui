@@ -6,7 +6,7 @@ module race_sui::recipient;
 
 use std::string::{Self, String};
 use sui::address;
-use sui::bcs::{Self, BCS};
+// use sui::bcs::{Self, BCS};
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
@@ -40,31 +40,31 @@ public struct RecipientSlotShare has copy, drop, store {
 
 /// One recipient slot which, once created, has a specific COIN associated
 /// `token_addr` is the full path to this coin's struct, e.g., 0x02::sui::SUI
-/// `sid` is the slot id used in game, starting at 0 and no duplicates
+/// the slot id used in game, starting at 0 and no duplicates
 public struct RecipientSlot<phantom T> has key, store {
     id: UID,
-    sid: u8,
+    slot_id: u8,
     slot_type: RecipientSlotType,
     token_addr: String,
     shares: vector<RecipientSlotShare>,
     balance: Balance<T>,
 }
 
-/// An on-chain recipient object
+/// An on-chain recipient object. `sids` stores each slot's on-chain ID for query
 public struct Recipient has key, store {
     id: UID,
     cap_addr: Option<address>,
-    slot_ids: vector<ID>,
+    sids: vector<ID>,
 }
 
 /// For hot potato pattern, passed through each slot creation process
 public struct RecipientBuilder {
-    slot_ids: vector<ID>
+    sids: vector<ID>
 }
 
 // ===  Public functions ===
 public fun new_recipient_builder(): RecipientBuilder {
-    RecipientBuilder { slot_ids: vector::empty<ID>() }
+    RecipientBuilder { sids: vector::empty<ID>() }
 }
 
 public fun create_slot_share(
@@ -94,7 +94,7 @@ public fun create_slot_share(
 }
 
 public fun create_recipient_slot<T>(
-    sid: u8,                    // slot id
+    slot_id: u8,                    // slot id, in-game only
     token_addr: String,
     slot_type_info: u8,
     shares: vector<RecipientSlotShare>,
@@ -105,12 +105,13 @@ public fun create_recipient_slot<T>(
     let slot_type = create_slot_type(slot_type_info);
 
     let id = object::new(ctx);
-    let slot_id = object::uid_to_inner(&id);
+    // this slot id is used for querying the game on chain
+    let sid = object::uid_to_inner(&id);
     let balance = balance::zero<T>();
 
     let slot = RecipientSlot {
         id,
-        sid,
+        slot_id,
         slot_type,
         token_addr,
         shares,
@@ -121,9 +122,9 @@ public fun create_recipient_slot<T>(
     transfer::share_object(slot);
 
     // reconstruct the builder and pass it on
-    let RecipientBuilder { mut slot_ids } = recipient_builder;
-    vector::push_back(&mut slot_ids, slot_id);
-    RecipientBuilder { slot_ids }
+    let RecipientBuilder { mut sids } = recipient_builder;
+    vector::push_back(&mut sids, sid);
+    RecipientBuilder { sids }
 }
 
 public fun create_recipient(
@@ -132,12 +133,12 @@ public fun create_recipient(
     ctx: &mut TxContext,
 ) {
     // consume the hot potato
-    let RecipientBuilder { slot_ids } = recipient_builder;
+    let RecipientBuilder { sids } = recipient_builder;
 
     let recipient = Recipient {
         id: object::new(ctx),
         cap_addr,
-        slot_ids
+        sids
     };
 
     transfer::share_object(recipient);

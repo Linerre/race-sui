@@ -1,11 +1,9 @@
 module race_sui::game;
 use std::string::{Self, String};
-
-// use sui::balance::{Self, Balance};
-// use sui::coin::{Self, Coin};
-// use sui::bag::{Self, Bag};
 use sui::event;
 use sui::url::{Self, Url};
+// use sui::balance::{Self, Balance};
+// use sui::coin::{Self, Coin};
 
 use race_sui::server::Server;
 
@@ -13,7 +11,7 @@ use race_sui::server::Server;
 const MAX_SERVER_NUM: u64 = 10;
 const EServerNumberExceedsLimit: u64 = 410;
 const EDuplicateServerJoin: u64 = 411;
-const EGameHasLeftPlayers: u64 = 412;
+const EGameIsNotEmpty: u64 = 412;
 const EGameOwnerMismatch: u64 = 413;
 const EInvalidCashDeposit: u64 = 414;
 const EInvalidTicketAmount: u64 = 415;
@@ -23,7 +21,7 @@ const EGameIsFull: u64 = 418;
 
 // === Structs ===
 /// Only game owner can delete a game
-public struct GameOwnerCap has key {
+public struct GameAdminCap has key {
     id: UID,
 }
 
@@ -33,6 +31,17 @@ public enum EntryLock has drop, store {
     JoinOnly,
     DepositOnly,
     Closed,
+}
+
+/// Game' 3 EntryTypes
+public enum EntryType has copy, drop, store {
+    /// A player can join the game by sending assets to game account directly
+    Cash { min_deposit: u64, max_deposit: u64 },
+    /// A player can join the game by pay a ticket
+    Ticket { amount: u64 },
+    /// A player can join the game by showing a gate NFT
+    Gating { collection: String },
+    Disabled,
 }
 
 public struct PlayerJoin has drop, store {
@@ -62,17 +71,6 @@ public struct Vote has drop, store {
     vote_type: u8,
 }
 
-/// Game' 3 EntryTypes
-public enum EntryType has copy, drop, store {
-    /// A player can join the game by sending assets to game account directly
-    Cash { min_deposit: u64, max_deposit: u64 },
-    /// A player can join the game by pay a ticket
-    Ticket { amount: u64 },
-    /// A player can join the game by showing a gate NFT
-    Gating { collection: String },
-    Disabled,
-}
-
 /// On-chain game account
 public struct Game has key {
     id: UID,
@@ -81,13 +79,13 @@ public struct Game has key {
     /// game name displayed on chain
     title: String,
     // TODO: may simplify this to a string arweave tx id
-    /// AccountAddress to the game core logic program (WASM) on Arweave
+    /// AccountAddress to the game (WASM) as an NFT
     bundle_addr: address,
     /// SuiAddress to the game owner that creates this game object
     owner: address,
     /// the recipient account address (AccountAddress in SDK)
     recipient_addr: address,
-    /// SuiAddress of the frist server joined the game,
+    /// AccountAddress of the frist server joined the game,
     transactor_addr: Option<address>,
     /// token type used in this game, e.g. "0x02::sui::SUI"
     token_addr: String,
@@ -135,98 +133,71 @@ public struct GameMinted has copy, drop {
     name: String,
 }
 
-// === Entry functions ===
-public entry fun create_cash_game(
+// === Public-mutative functions ===
+public fun create_cash_entry(min_deposit: u64, max_deposit: u64): EntryType {
+    EntryType::Cash { min_deposit, max_deposit }
+}
+
+public fun create_ticket_entry(amount: u64): EntryType {
+    EntryType::Ticket { amount }
+}
+
+public fun create_gating_entry(collection: String): EntryType {
+    EntryType::Gating { collection }
+}
+
+public fun create_disabled_entry(): EntryType {
+    EntryType::Disabled
+}
+
+public fun create_game(
     title: String,
     bundle_addr: address,
     owner: address,
     recipient_addr: address,
-    token_addr: address,
+    token_addr: String,
     max_players: u16,
     data_len: u32,
     data: vector<u8>,
-    min_deposit: u64,
-    max_deposit: u64,
+    entry_type: EntryType,
     ctx: &mut TxContext
-) {
-    let mut game = new_game(
+): ID {
+    let game = Game {
+        id: object::new(ctx),
         title,
+        version: string::utf8(b"0.1.0"),
         bundle_addr,
         owner,
         recipient_addr,
+        transactor_addr: option::none(),
         token_addr,
+        access_version: 0,
+        settle_version: 0,
         max_players,
+        players: vector::empty<PlayerJoin>(),
+        deposits: vector::empty<PlayerDeposit>(),
+        servers: vector::empty<ServerJoin>(),
+        votes: vector::empty<Vote>(),
+        unlock_time: option::none(),
+        entry_type,
         data_len,
         data,
-        ctx
-    );
+        checkpoint: vector::empty<u8>(),
+        entry_lock: EntryLock::Open,
+    };
 
-    game.entry_type = EntryType::Cash { min_deposit, max_deposit };
+    // record game id for return
+    let game_id = object::uid_to_inner(&game.id);
 
-    transfer::transfer(game, ctx.sender());
+    // share the game so everyone can access it
+    transfer::share_object(game);
+
+    game_id
 }
 
-public entry fun create_ticket_game(
-    title: String,
-    bundle_addr: address,
-    owner: address,
-    recipient_addr: address,
-    token_addr: address,
-    max_players: u16,
-    data_len: u32,
-    data: vector<u8>,
-    amount: u64,
-    ctx: &mut TxContext
-) {
-    let mut game = new_game(
-        title,
-        bundle_addr,
-        owner,
-        recipient_addr,
-        token_addr,
-        max_players,
-        data_len,
-        data,
-        ctx
-    );
-
-    game.entry_type = EntryType::Ticket { amount };
-
-    transfer::transfer(game, ctx.sender());
-}
-
-public entry fun create_gating_game(
-    title: String,
-    bundle_addr: address,
-    owner: address,
-    recipient_addr: address,
-    token_addr: address,
-    max_players: u16,
-    data_len: u32,
-    data: vector<u8>,
-    collection: String,
-    ctx: &mut TxContext
-) {
-    let mut game = new_game(
-        title,
-        bundle_addr,
-        owner,
-        recipient_addr,
-        token_addr,
-        max_players,
-        data_len,
-        data,
-        ctx
-    );
-
-    game.entry_type = EntryType::Gating { collection };
-
-    transfer::transfer(game, ctx.sender());
-}
-
-public entry fun close(game: Game, ctx: &mut TxContext) {
+public fun close(game: Game, ctx: &mut TxContext) {
     assert!(&ctx.sender() == &game.owner, EGameOwnerMismatch);
-    assert!(vector::is_empty(&game.players), EGameHasLeftPlayers);
+    assert!(vector::is_empty(&game.players), EGameIsNotEmpty);
 
     let Game {
         id,
@@ -256,7 +227,7 @@ public entry fun close(game: Game, ctx: &mut TxContext) {
 }
 
 /// Publish (mint) the game as NFT
-public entry fun publish(
+public fun publish(
     name: String,
     description: String,
     url: vector<u8>,
@@ -284,7 +255,7 @@ public entry fun publish(
 /// When a server joins an on-chain game, it can be either of the following cases:
 /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
 /// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
-public entry fun serve(
+public fun serve(
     game: &mut Game,
     server: &Server,
     verify_key: String,
@@ -316,7 +287,7 @@ public entry fun serve(
 }
 
 /// Player joins a game
-public entry fun join(
+public fun join(
     game: &mut Game,
     player_addr: address,
     position: u16,
@@ -400,6 +371,7 @@ public entry fun join(
     );
 }
 
+
 // === Public-view functions ===
 public fun player_num(self: &Game): u16 {
     vector::length(&self.players) as u16
@@ -446,39 +418,3 @@ public fun name(nft: &GameNFT): String {
 }
 
 // === Private functions ===
-fun new_game(
-    title: String,
-    bundle_addr: address,
-    owner: address,
-    recipient_addr: address,
-    token_addr: address,
-    max_players: u16,
-    data_len: u32,
-    data: vector<u8>,
-    ctx: &mut TxContext
-): Game {
-
-    Game {
-        id: object::new(ctx),
-        title,
-        version: string::utf8(b"0.2.2"),
-        bundle_addr,
-        owner,
-        recipient_addr,
-        transactor_addr: option::none(),
-        token_addr,
-        access_version: 0,
-        settle_version: 0,
-        max_players,
-        players: vector::empty<PlayerJoin>(),
-        deposits: vector::empty<PlayerDeposit>(),
-        servers: vector::empty<ServerJoin>(),
-        votes: vector::empty<Vote>(),
-        unlock_time: option::none(),
-        entry_type: EntryType::Disabled,
-        data_len,
-        data,
-        checkpoint: vector::empty<u8>(),
-        entry_lock: EntryLock::Open,
-    }
-}
