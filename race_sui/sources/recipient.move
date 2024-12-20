@@ -145,7 +145,7 @@ public fun create_recipient(
 }
 
 /// Allow anyone to deposit coins into the balance of a recipient slot
-public entry fun deposit_to_slot<T>(
+public fun deposit_to_slot<T>(
     slot: &mut RecipientSlot<T>,
     coin: Coin<T>
 ) {
@@ -155,7 +155,7 @@ public entry fun deposit_to_slot<T>(
 
 
 /// Claim stake from one slot
-public entry fun recipient_claim<T>(
+public fun recipient_claim<T>(
     receiver: address,
     slot: &mut RecipientSlot<T>,
     ctx: &mut TxContext,
