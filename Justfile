@@ -13,7 +13,7 @@ addr:
     cd race_sui && sui client address
 
 publish:
-    cd race_sui && sui client publish --json --force
+    cd race_sui && sui client publish --force
 
 test:
     cd race_sui && sui move test
