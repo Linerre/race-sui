@@ -1,6 +1,7 @@
 module race_sui::registry;
 use std::string::String;
 use sui::clock::{Self, Clock};
+use race_sui::game::{Game, title, bundle_addr, game_id};
 
 // === Constants ===
 const ERegistryOwnerMismatch: u64 = 400;
@@ -12,29 +13,29 @@ const EGameNotRegistered: u64 = 404;
 public struct GameReg has drop, store {
     /// game title displayed on chain
     title: String,
-    /// on-chain game's object address
-    addr: address,
-    /// game bundle address
+    /// on-chain game's object ID
+    game_id: ID,
+    /// game bundle account address (NFT as object)
     bundle_addr: address,       // TODO: use arweave txid string
     /// game registration timestamp
     reg_time: u64,
 }
 
-/// On-chain game lobby holding all the games to be displayed in frontend lobby
+/// On-chain game lobby holding all the games to be displayed in the frontend lobby
 public struct Registry has key {
     id: UID,
     /// whether or not this registration center is private
     is_private: bool,
     /// number of games allowed for this registration center
     size: u16,
-    /// owner address
+    /// owner (creator or tx sender) address
     owner: address,
     /// games registered in this center
     games: vector<GameReg>,
 }
 
 /// Create an on-chain lobby
-public entry fun create_registry(
+public fun create_registry(
     is_private: bool,
     size: u16,
     ctx: &mut TxContext
@@ -47,34 +48,38 @@ public entry fun create_registry(
         games: vector::empty<GameReg>(),
     };
 
-    transfer::transfer(registry, ctx.sender());
+    if (is_private) {
+        transfer::transfer(registry, ctx.sender());
+    } else {
+        transfer::share_object(registry);
+    }
 }
 
 /// Record a given game to a given on-chain lobby (registry)
-public entry fun register_game(
-    game_addr: address,
-    title: String,
-    bundle_addr: address,
+public fun register_game(
+    game: &Game,
     registry: &mut Registry,
     clock: &Clock,
     ctx: &mut TxContext
 ) {
-
-    let n = vector::length(&registry.games);
-    assert!(n >= registry.size as u64, ERegistryIsFull);
-
     if (registry.is_private && ctx.sender() != registry.owner)
     abort ERegistryOwnerMismatch;
 
+    let n = vector::length(&registry.games);
+    assert!(n < registry.size as u64, ERegistryIsFull);
+
+    let game_id = game.game_id();
+    let title = game.title();
+    let bundle_addr = game.bundle_addr();
     let mut i = 0;
     while (i < n) {
         let curr_game: &GameReg = vector::borrow(&registry.games, i);
-        assert!(curr_game.addr != game_addr, EGameAlreadyRegistered);
+        assert!(curr_game.game_id != game_id, EGameAlreadyRegistered);
         i = i + 1;
     };
 
     let game_reg = GameReg {
-        addr: game_addr,
+        game_id,
         title,
         bundle_addr,
         reg_time: clock::timestamp_ms(clock),
@@ -84,8 +89,8 @@ public entry fun register_game(
 }
 
 /// Remove a given game from a given lobby (registry)
-public entry fun unregister_game(
-    game_addr: address,
+public fun unregister_game(
+    game_id: ID,
     registry: &mut Registry,
     ctx: &mut TxContext
 ) {
@@ -99,7 +104,7 @@ public entry fun unregister_game(
     let mut game_idx = 0;
     while (i < n) {
         let curr_game = vector::borrow(&registry.games, i);
-        if (curr_game.addr == game_addr) {
+        if (curr_game.game_id == game_id) {
             game_reged = true;
             game_idx = i;
             break

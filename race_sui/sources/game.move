@@ -1,10 +1,7 @@
+#[allow(unused_function)]
 module race_sui::game;
 use std::string::{Self, String};
 use sui::event;
-use sui::url::{Self, Url};
-// use sui::balance::{Self, Balance};
-// use sui::coin::{Self, Coin};
-
 use race_sui::server::Server;
 
 // === Constants ===
@@ -18,6 +15,7 @@ const EInvalidTicketAmount: u64 = 415;
 const EPositionOutOfRange: u64 = 416;
 const EDuplicatePlayerJoin: u64 = 417;
 const EGameIsFull: u64 = 418;
+const EInvalideVoteType: u64 = 419;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -31,6 +29,11 @@ public enum EntryLock has drop, store {
     JoinOnly,
     DepositOnly,
     Closed,
+}
+
+public enum VoteType has drop, store {
+    ServerVoteTransactorDropOff,
+    ClientVoteTransactorDropOff
 }
 
 /// Game' 3 EntryTypes
@@ -53,7 +56,7 @@ public struct PlayerJoin has drop, store {
 
 public struct ServerJoin has drop, store {
     addr: address,
-    endpoint: Url,
+    endpoint: String,
     access_version: u64,
     verify_key: String,
 }
@@ -68,7 +71,7 @@ public struct PlayerDeposit has drop, store {
 public struct Vote has drop, store {
     voter: address,
     votee: address,
-    vote_type: u8,
+    vote_type: VoteType,
 }
 
 /// On-chain game account
@@ -81,14 +84,14 @@ public struct Game has key {
     // TODO: may simplify this to a string arweave tx id
     /// AccountAddress to the game (WASM) as an NFT
     bundle_addr: address,
+    /// token type used in this game, e.g. "0x02::sui::SUI"
+    coin_type: String,
     /// SuiAddress to the game owner that creates this game object
     owner: address,
     /// the recipient account address (AccountAddress in SDK)
     recipient_addr: address,
     /// AccountAddress of the frist server joined the game,
     transactor_addr: Option<address>,
-    /// token type used in this game, e.g. "0x02::sui::SUI"
-    token_addr: String,
     /// a serial number, increased by 1 after each PlayerJoin or ServerJoin
     access_version: u64,
     /// a serial number, increased by 1 after each settlement
@@ -121,10 +124,8 @@ public struct GameNFT has key, store {
     id: UID,
     /// name for the game NFT
     name: String,
-    description: String,        // up to 200 chars/bytes?
-    url: Url,                   // arweave url points to the game WASM
-    // TODO: add custom attributes
-    // cover: Url
+    bundle_url: String,         // arweave url to the game WASM
+    cover_url: String           // arweave url to the cover image
 }
 
 public struct GameMinted has copy, drop {
@@ -133,7 +134,7 @@ public struct GameMinted has copy, drop {
     name: String,
 }
 
-// === Public-mutative functions ===
+// === Private-mutative functions ===
 public fun create_cash_entry(min_deposit: u64, max_deposit: u64): EntryType {
     EntryType::Cash { min_deposit, max_deposit }
 }
@@ -150,12 +151,20 @@ public fun create_disabled_entry(): EntryType {
     EntryType::Disabled
 }
 
+public fun create_vote_type(variant: u8): VoteType {
+    match (variant) {
+        0 => VoteType::ServerVoteTransactorDropOff,
+        1 => VoteType::ClientVoteTransactorDropOff,
+        _ => abort EInvalideVoteType
+    }
+}
+
 public fun create_game(
     title: String,
     bundle_addr: address,
     owner: address,
     recipient_addr: address,
-    token_addr: String,
+    coin_type: String,
     max_players: u16,
     data_len: u32,
     data: vector<u8>,
@@ -170,7 +179,7 @@ public fun create_game(
         owner,
         recipient_addr,
         transactor_addr: option::none(),
-        token_addr,
+        coin_type,
         access_version: 0,
         settle_version: 0,
         max_players,
@@ -196,7 +205,7 @@ public fun create_game(
 }
 
 public fun close(game: Game, ctx: &mut TxContext) {
-    assert!(&ctx.sender() == &game.owner, EGameOwnerMismatch);
+    assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
     assert!(vector::is_empty(&game.players), EGameIsNotEmpty);
 
     let Game {
@@ -207,7 +216,7 @@ public fun close(game: Game, ctx: &mut TxContext) {
         owner: _,
         transactor_addr: _,
         recipient_addr: _,
-        token_addr: _,
+        coin_type: _,
         access_version: _,
         settle_version: _,
         max_players: _,
@@ -229,16 +238,16 @@ public fun close(game: Game, ctx: &mut TxContext) {
 /// Publish (mint) the game as NFT
 public fun publish(
     name: String,
-    description: String,
-    url: vector<u8>,
+    bundle_url: String,
+    cover_url: String,
     ctx: &mut TxContext
 ) {
     let sender = ctx.sender();
     let nft = GameNFT {
         id: object::new(ctx),
         name,
-        description,
-        url: url::new_unsafe_from_bytes(url)
+        bundle_url,
+        cover_url
     };
 
     event::emit(GameMinted {
@@ -289,14 +298,15 @@ public fun serve(
 /// Player joins a game
 public fun join(
     game: &mut Game,
-    player_addr: address,
     position: u16,
     settle_version: u64,
     join_amount: u64,
-    verify_key: String
+    verify_key: String,
+    ctx: &TxContext
 ) {
     let player_num = game.player_num();
     let max_players = game.max_players();
+    let sender = ctx.sender();
 
     assert!(player_num < max_players, EGameIsFull);
     assert!(position < max_players, EPositionOutOfRange);
@@ -307,7 +317,7 @@ public fun join(
     let mut pos_taken = vector::empty<u16>();
     while (i < player_num as u64) {
         let curr_player: &PlayerJoin = vector::borrow(&game.players, i);
-        if (curr_player.addr == player_addr) {
+        if (curr_player.addr == sender) {
             abort EDuplicatePlayerJoin
         };
         vector::push_back(&mut pos_taken, curr_player.position);
@@ -338,7 +348,7 @@ public fun join(
 
     let access_version = game.access_version + 1;
     let player_join =  PlayerJoin {
-        addr: player_addr,
+        addr: sender,
         position: avail_pos,
         access_version,
         verify_key,
@@ -364,7 +374,7 @@ public fun join(
     vector::push_back(
         &mut game.deposits,
         PlayerDeposit {
-            addr: player_addr,
+            addr: sender,
             amount: join_amount,
             settle_version
         }
@@ -373,6 +383,18 @@ public fun join(
 
 
 // === Public-view functions ===
+public fun title(self: &Game): String {
+    self.title
+}
+
+public fun bundle_addr(self: &Game): address {
+    self.bundle_addr
+}
+
+public fun game_id(self: &Game): ID {
+    object::uid_to_inner(&self.id)
+}
+
 public fun player_num(self: &Game): u16 {
     vector::length(&self.players) as u16
 }
@@ -405,16 +427,14 @@ public fun settle_version(self: &Game): u64 {
     self.settle_version
 }
 
-public fun description(nft: &GameNFT): String {
-    nft.description
+public fun bundle_url(nft: &GameNFT): String {
+    nft.bundle_url
 }
 
-public fun url(nft: &GameNFT): Url {
-    nft.url
+public fun cover_url(nft: &GameNFT): String {
+    nft.cover_url
 }
 
 public fun name(nft: &GameNFT): String {
     nft.name
 }
-
-// === Private functions ===
