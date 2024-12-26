@@ -6,11 +6,9 @@ module race_sui::recipient;
 
 use std::string::{Self, String};
 use sui::address;
-// use sui::bcs::{Self, BCS};
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
-use std::debug;
 
 // === Error codes ===
 const EInvalidRecipientOwnerVariant: u64 = 440;
@@ -57,7 +55,8 @@ public struct Recipient has key, store {
     sids: vector<ID>,
 }
 
-/// For hot potato pattern, passed through each slot creation process
+/// To record the slot ids during the recipient creation and gets
+/// dropped once recipient is created -- hot potato pattern
 public struct RecipientBuilder {
     sids: vector<ID>
 }
@@ -69,7 +68,7 @@ public fun new_recipient_builder(): RecipientBuilder {
 
 public fun create_slot_share(
     owner_type: u8,           // 0: unassigned, 1: assgined
-    owner_info: String,       // identifier or address in string
+    owner_info: String,       // identifier or address (without `0x` prefix)
     weights: u16,
 ): RecipientSlotShare {
     let owner = match (owner_type) {
@@ -79,8 +78,7 @@ public fun create_slot_share(
             RecipientSlotOwner::Unassigned { identifier: owner_info }
         },
         1 => {
-            let bytes = string::into_bytes(owner_info);
-            let addr = address::from_bytes(bytes);
+            let addr = address::from_ascii_bytes(string::as_bytes(&owner_info));
             RecipientSlotOwner::Assigned { addr }
         },
         _ => abort EInvalidRecipientOwnerVariant

@@ -94,11 +94,11 @@ public fun unregister_game(
     registry: &mut Registry,
     ctx: &mut TxContext
 ) {
-    assert!(vector::length(&registry.games) > 0, ERegistryIsEmpty);
+    let n = vector::length(&registry.games);
+    assert!(n > 0, ERegistryIsEmpty);
     if (registry.is_private && ctx.sender() != registry.owner)
     abort ERegistryOwnerMismatch;
 
-    let n = vector::length(&registry.games);
     let mut i = 0;
     let mut game_reged = false;
     let mut game_idx = 0;

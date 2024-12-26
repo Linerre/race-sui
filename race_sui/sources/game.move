@@ -47,6 +47,15 @@ public enum EntryType has copy, drop, store {
     Disabled,
 }
 
+
+public enum DepositStatus has drop, store {
+    /// Default
+    Pending,
+    Rejected,
+    Refunded,
+    Accepted,
+}
+
 public struct PlayerJoin has drop, store {
     addr: address,
     position: u16,
@@ -64,7 +73,9 @@ public struct ServerJoin has drop, store {
 public struct PlayerDeposit has drop, store {
     addr: address,
     amount: u64,
+    access_version: u64,
     settle_version: u64,
+    status: DepositStatus
 }
 
 #[allow(unused_field)]
@@ -204,7 +215,7 @@ public fun create_game(
     game_id
 }
 
-public fun close(game: Game, ctx: &mut TxContext) {
+public fun close_game(game: Game, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
     assert!(vector::is_empty(&game.players), EGameIsNotEmpty);
 
@@ -264,7 +275,7 @@ public fun publish(
 /// When a server joins an on-chain game, it can be either of the following cases:
 /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
 /// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
-public fun serve(
+public fun serve_game(
     game: &mut Game,
     server: &Server,
     verify_key: String,
@@ -296,10 +307,10 @@ public fun serve(
 }
 
 /// Player joins a game
-public fun join(
+public fun join_game(
     game: &mut Game,
     position: u16,
-    settle_version: u64,
+    _access_version: u64,
     join_amount: u64,
     verify_key: String,
     ctx: &TxContext
@@ -345,15 +356,6 @@ public fun join(
     // all positions taken so cannot join
     if (all_pos_taken) abort EPositionOutOfRange;
 
-
-    let access_version = game.access_version + 1;
-    let player_join =  PlayerJoin {
-        addr: sender,
-        position: avail_pos,
-        access_version,
-        verify_key,
-    };
-
     // check entry type
     match (&game.entry_type) {
         EntryType::Cash { min_deposit, max_deposit } => {
@@ -370,13 +372,27 @@ public fun join(
         EntryType::Disabled => (),
     };
 
-    vector::push_back(&mut game.players, player_join);
+    // bump access version
+    game.access_version = game.access_version + 1;
+
+    // player joins
+    vector::push_back(
+        &mut game.players,
+        PlayerJoin {
+            addr: sender,
+            position: avail_pos,
+            access_version: game.access_version,
+            verify_key,
+        });
+
     vector::push_back(
         &mut game.deposits,
         PlayerDeposit {
             addr: sender,
             amount: join_amount,
-            settle_version
+            access_version: game.access_version,
+            settle_version: game.settle_version,
+            status: DepositStatus::Accepted
         }
     );
 }
