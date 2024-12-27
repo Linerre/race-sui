@@ -16,11 +16,11 @@ public struct ServerTableCap has key {
 /// 1. one owner can have only one on-chain server
 /// 2. only the package publisher can delete this table
 public struct ServerTable has key {
-    /// Table's on-chain id
+    /// this Table's on-chain id
     id: UID,
     /// publisher (owner) addr
     publisher: address,
-    /// Table of onwer address to server ID (converted from its UID)
+    /// Table of server onwer address to server ID (converted from its UID)
     addr_to_sid: Table<address, ID>,
 }
 

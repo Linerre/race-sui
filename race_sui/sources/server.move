@@ -18,12 +18,13 @@ public struct Server has key {
 }
 
 // === Entry function ===
-/// Create an on-chain server object
+/// Create an on-chain server object whose ID will be stored in the
+/// global ServerTable. Each user address can own one server only
 public fun register_server(
     endpoint: String,
     server_table: &mut ServerTable,
     ctx: &mut TxContext
-): address {
+) {
     let owner: address = ctx.sender();
 
     if (owner_exists(server_table, owner))
@@ -40,8 +41,6 @@ public fun register_server(
     // copy newly created server addr for return
     let server_addr = object::uid_to_address(&server.id);
     transfer::transfer(server, owner);
-
-    server_addr
 }
 
 // === Public-view functions ===
