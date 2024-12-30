@@ -56,8 +56,8 @@ public fun create_registry(
 }
 
 /// Record a given game to a given on-chain lobby (registry)
-public fun register_game(
-    game: &Game,
+public fun register_game<T>(
+    game: &Game<T>,
     registry: &mut Registry,
     clock: &Clock,
     ctx: &mut TxContext

@@ -39,7 +39,6 @@ public fun register_server(
     add_server(server_table, owner, object::uid_to_inner(&server.id));
 
     // copy newly created server addr for return
-    let server_addr = object::uid_to_address(&server.id);
     transfer::transfer(server, owner);
 }
 

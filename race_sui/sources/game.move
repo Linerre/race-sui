@@ -2,13 +2,15 @@
 module race_sui::game;
 use std::string::{Self, String};
 use sui::event;
+use sui::balance::{Self, Balance};
+use sui::coin::{Self, Coin};
 use race_sui::server::Server;
 
 // === Constants ===
 const MAX_SERVER_NUM: u64 = 10;
 const EServerNumberExceedsLimit: u64 = 410;
 const EDuplicateServerJoin: u64 = 411;
-const EGameIsNotEmpty: u64 = 412;
+const EGameStillHasPlayers: u64 = 412;
 const EGameOwnerMismatch: u64 = 413;
 const EInvalidCashDeposit: u64 = 414;
 const EInvalidTicketAmount: u64 = 415;
@@ -85,8 +87,17 @@ public struct Vote has drop, store {
     vote_type: VoteType,
 }
 
+#[allow(unused_field)]
+public struct Bonus<phantom T> has key {
+    id: UID,
+    identifier: String,
+    token_addr: address,
+    amount: u64,
+    balance: Balance<T>
+}
+
 /// On-chain game account
-public struct Game has key {
+public struct Game<phantom T> has key {
     id: UID,
     /// the contract version, used for upgrade
     version: String,
@@ -115,6 +126,8 @@ public struct Game has key {
     deposits: vector<PlayerDeposit>,
     /// game servers (max: 10)
     servers: vector<ServerJoin>,
+    /// balance is the total deposits from players, used for settlement
+    balance: Balance<T>,
     /// data length
     data_len: u32,
     /// serialized game-specific data such as sb/bb
@@ -129,6 +142,8 @@ public struct Game has key {
     checkpoint: vector<u8>,
     /// lock types for entry
     entry_lock: EntryLock,
+    /// game bonuses, each is an on-chain object
+    bonuses: vector<ID>
 }
 
 public struct GameNFT has key, store {
@@ -170,7 +185,7 @@ public fun create_vote_type(variant: u8): VoteType {
     }
 }
 
-public fun create_game(
+public fun create_game<T>(
     title: String,
     bundle_addr: address,
     owner: address,
@@ -181,8 +196,8 @@ public fun create_game(
     data: vector<u8>,
     entry_type: EntryType,
     ctx: &mut TxContext
-): ID {
-    let game = Game {
+) {
+    let game = Game<T> {
         id: object::new(ctx),
         title,
         version: string::utf8(b"0.1.0"),
@@ -200,53 +215,32 @@ public fun create_game(
         votes: vector::empty<Vote>(),
         unlock_time: option::none(),
         entry_type,
+        balance: balance::zero<T>(),
         data_len,
         data,
         checkpoint: vector::empty<u8>(),
         entry_lock: EntryLock::Open,
+        bonuses: vector::empty<ID>()
     };
-
-    // record game id for return
-    let game_id = object::uid_to_inner(&game.id);
 
     // share the game so everyone can access it
     transfer::share_object(game);
-
-    game_id
 }
 
-public fun close_game(game: Game, ctx: &mut TxContext) {
+public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
-    assert!(vector::is_empty(&game.players), EGameIsNotEmpty);
+    assert!(vector::is_empty(&game.players), EGameStillHasPlayers);
 
-    let Game {
-        id,
-        title: _,
-        version: _,
-        bundle_addr: _,
-        owner: _,
-        transactor_addr: _,
-        recipient_addr: _,
-        coin_type: _,
-        access_version: _,
-        settle_version: _,
-        max_players: _,
-        players: _,
-        deposits: _,
-        servers: _,
-        data_len: _,
-        data: _,
-        votes: _,
-        unlock_time: _,
-        entry_type: _,
-        checkpoint: _,
-        entry_lock: _,
-    } = game;
+    let Game {id, balance, bonuses, .. } = game;
+    // will abort with ENonZero if the balance is not zero
+    balance::destroy_zero(balance);
+    vector::destroy_empty(bonuses);
 
     object::delete(id);
 }
 
 /// Publish (mint) the game as NFT
+#[allow(lint(self_transfer))]
 public fun publish(
     name: String,
     bundle_url: String,
@@ -275,14 +269,14 @@ public fun publish(
 /// When a server joins an on-chain game, it can be either of the following cases:
 /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
 /// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
-public fun serve_game(
-    game: &mut Game,
+public fun serve_game<T>(
+    game: &mut Game<T>,
     server: &Server,
     verify_key: String,
     _ctx: &mut TxContext
 ) {
     let server_num = vector::length(&game.servers);
-    assert!(server_num < MAX_SERVER_NUM, EServerNumberExceedsLimit);
+    assert!(server_num <= MAX_SERVER_NUM, EServerNumberExceedsLimit);
 
     // check duplicate server join
     let server_addr = server.addr();
@@ -293,27 +287,30 @@ public fun serve_game(
         i = i + 1;
     };
 
-    let access_version = game.access_version + 1;
+    // bump game access_version
+    game.access_version = game.access_version + 1;
 
     vector::push_back(
         &mut game.servers,
         ServerJoin {
             addr: server_addr,
             endpoint: server.endpoint(),
-            access_version,
+            access_version: game.access_version,
             verify_key,
         }
     );
 }
 
 /// Player joins a game
-public fun join_game(
-    game: &mut Game,
+#[allow(lint(self_transfer))]
+public fun join_game<T>(
+    game: &mut Game<T>,
     position: u16,
     _access_version: u64,
     join_amount: u64,
     verify_key: String,
-    ctx: &TxContext
+    mut player_coin: Coin<T>,
+    ctx: &mut TxContext
 ) {
     let player_num = game.player_num();
     let max_players = game.max_players();
@@ -322,20 +319,17 @@ public fun join_game(
     assert!(player_num < max_players, EGameIsFull);
     assert!(position < max_players, EPositionOutOfRange);
 
-    // the given position may have been already taken so we need to check availability
+    // check for duplicate player join
     let mut i = 0;
-    // record all the positions currently already taken
     let mut pos_taken = vector::empty<u16>();
     while (i < player_num as u64) {
         let curr_player: &PlayerJoin = vector::borrow(&game.players, i);
-        if (curr_player.addr == sender) {
-            abort EDuplicatePlayerJoin
-        };
+        if (curr_player.addr == sender) abort EDuplicatePlayerJoin;
         vector::push_back(&mut pos_taken, curr_player.position);
         i = i + 1;
     };
 
-    // assume the given position not taken and try to verify this assumption
+    // check if the given position already taken
     let mut all_pos_taken = false;
     let mut avail_pos = position;
     if (vector::contains(&pos_taken, &position)) {
@@ -385,6 +379,13 @@ public fun join_game(
             verify_key,
         });
 
+    // update game balance and return the remaining coin to player
+    let payment: Coin<T> = coin::split(&mut player_coin, join_amount, ctx);
+    let player_balance: Balance<T> = coin::into_balance(payment);
+    balance::join(&mut game.balance, player_balance);
+    transfer::public_transfer(player_coin, sender);
+
+    // record this deposit in game deposits
     vector::push_back(
         &mut game.deposits,
         PlayerDeposit {
@@ -397,49 +398,73 @@ public fun join_game(
     );
 }
 
+/// Split amount out of game's balance.  This function is required as Sui Move
+/// does not any function outside this module to write to any fields of `Game`
+public(package) fun split_balance<T>(self: &mut Game<T>, amount: u64): Balance<T> {
+    balance::split(&mut self.balance, amount)
+}
+
+public(package) fun eject_player<T>(self: &mut Game<T>, index: u64) {
+    let _ = vector::remove(&mut self.players, index);
+}
+
+public(package) fun is_settle_player<T>(
+    self: &Game<T>,
+    index: u64,
+    player_id: u64
+): bool {
+    let player = vector::borrow(&self.players, index);
+    player.access_version == player_id
+}
 
 // === Public-view functions ===
-public fun title(self: &Game): String {
+public fun title<T>(self: &Game<T>): String {
     self.title
 }
 
-public fun bundle_addr(self: &Game): address {
+public fun bundle_addr<T>(self: &Game<T>): address {
     self.bundle_addr
 }
 
-public fun game_id(self: &Game): ID {
+public fun game_id<T>(self: &Game<T>): ID {
     object::uid_to_inner(&self.id)
 }
 
-public fun player_num(self: &Game): u16 {
+public fun player_num<T>(self: &Game<T>): u16 {
     vector::length(&self.players) as u16
 }
 
-public fun max_players(self: &Game): u16 {
+public fun max_players<T>(self: &Game<T>): u16 {
     self.max_players
 }
 
-public fun players(self: &Game): &vector<PlayerJoin> {
+public(package) fun players<T>(self: &Game<T>): &vector<PlayerJoin> {
     &self.players
 }
 
-public fun players_mut(self: &mut Game): &mut vector<PlayerJoin> {
+public(package) fun players_mut<T>(self: &mut Game<T>): &mut vector<PlayerJoin> {
     &mut self.players
 }
 
-public fun servers(self: &Game): &vector<ServerJoin> {
+// get a specific player's address
+public(package) fun player_addr<T>(self: &Game<T>, index: u64): address {
+    let player = vector::borrow(&self.players, index);
+    player.addr
+}
+
+public fun servers<T>(self: &Game<T>): &vector<ServerJoin> {
     &self.servers
 }
 
-public fun servers_mut(self: &mut Game): &mut vector<ServerJoin> {
+public fun servers_mut<T>(self: &mut Game<T>): &mut vector<ServerJoin> {
     &mut self.servers
 }
 
-public fun access_version(self: &Game): u64 {
+public fun access_version<T>(self: &Game<T>): u64 {
     self.access_version
 }
 
-public fun settle_version(self: &Game): u64 {
+public fun settle_version<T>(self: &Game<T>): u64 {
     self.settle_version
 }
 

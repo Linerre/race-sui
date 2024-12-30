@@ -6,9 +6,11 @@ use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use std::debug;
-
-
 use race_sui::game::{Game, EntryLock};
+
+// === Errors ===
+const ESettlePlayerNotFound: u64 = 450;
+const ESettleCoinMismatch: u64 = 451;
 
 // === Structs ===
 public enum PlayerStatus {
@@ -23,29 +25,32 @@ public enum AssetChange {
     NoChange,
 }
 
-// TODO: add phantom T
-public struct Settle has copy, store, drop {
+public struct Settle has drop, store {
     // identical to settle_version
     player_id: u64,
     amount: u64,
     eject: bool,
 }
 
-// TODO: add phantom T
-public struct Transfer has copy, store, drop {
+public struct Pay has drop, store {
+    receiver: address,
+    amount: u64,
+    coin_idx: u64,
+}
+
+public struct Transfer has drop, store {
     slot_id: u8,
     amount: u64,
 }
 
-// TODO: add phantom T
-public struct Award has copy, store, drop {
+public struct Award has drop, store {
     // identical to settle_version
     player_id: u64,
     bonus_identifier: String,
-}
 
+}
 #[allow(unused_field)]
-public struct SettleParams {
+public struct SettleParams has drop {
     settles: vector<Settle>,
     transfers: vector<Transfer>,
     awards: vector<Award>,
@@ -70,26 +75,67 @@ public fun create_award(player_id: u64, bonus_identifier: String): Award {
     Award { player_id, bonus_identifier }
 }
 
-#[allow(unused_variable)]
-public fun handle_settles(
-    game: &mut Game,
+public fun handle_settles<T>(
+    game: &mut Game<T>,
     settles: vector<Settle>,
+    mut coins: vector<Coin<T>>,
     ctx: &mut TxContext,
 ) {
+    let mut pays: vector<Pay> = vector::empty();
+    let mut i = 0;
+    let n = vector::length(&settles);
+    let m = game.player_num() as u64;
+    while (i < n) {
+        let mut found =  false;
+        let mut j = 0;
+        let settle = vector::borrow(&settles, i);
+        while (j < m) {
+            if (game.is_settle_player(j, settle.player_id)) {
+                vector::push_back(
+                    &mut pays,
+                    Pay {
+                        receiver: game.player_addr(j),
+                        amount: settle.amount,
+                        coin_idx: i
+                    }
+                );
+                if (settle.eject) {
+                    game.eject_player(j);
+                };
+                found = true;
+                break
+            };
+            j = j + 1;
+        };
+        if (!found) abort ESettlePlayerNotFound;
+        i = i + 1;
+    };
 
+    i = 0;
+    let k = vector::length(&pays);
+    assert!(n == k, ESettleCoinMismatch);
+    while (i < k) {
+        let payinfo = vector::borrow(&pays, i);
+        let payment: Balance<T> = game.split_balance(payinfo.amount);
+        let mut paycoin: Coin<T> = vector::remove(&mut coins, payinfo.coin_idx);
+        paycoin.join(coin::from_balance(payment, ctx));
+        transfer::public_transfer(paycoin, payinfo.receiver);
+        i = i + 1;
+    };
+    vector::destroy_empty(coins); // if any coin left unconsumed, abort with error
 }
 
 #[allow(unused_variable)]
-public fun handle_transfers(
-    game: &mut Game,
+public fun handle_transfers<T>(
+    game: &mut Game<T>,
     settles: vector<Transfer>,
     ctx: &mut TxContext,
 ) {
 
 }
 #[allow(unused_variable)]
-public fun handle_bounses(
-    game: &mut Game,
+public fun handle_bounses<T>(
+    game: &mut Game<T>,
     settles: vector<Award>,
     ctx: &mut TxContext,
 ) {
