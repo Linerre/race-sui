@@ -6,15 +6,18 @@ use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use std::debug;
-use race_sui::game::{Game, EntryLock};
+use race_sui::game::{Bonus, Game, EntryLock, unpack_coin_bonus, unpack_obj_bonus};
 use race_sui::recipient::{RecipientSlot};
 
 // === Errors ===
 const ESettlePlayerNotFound: u64 = 450;
 const ESettleCoinMismatch: u64 = 451;
-const EInvalidSettleSender: u64 = 453;
-const EInvalidTransferSender: u64 = 454;
-const EInvalidBonusSender: u64 = 455;
+const EInvalidSettleTxSender: u64 = 453;
+const EInvalidTransferTxSender: u64 = 454;
+const EInvalidBonusTxSender: u64 = 455;
+const EBonusNotFoundInGame: u64 = 456;
+const EInvalidBonusReceiver: u64 = 457;
+const EInvalidBonusIdentifier: u64 = 458;
 
 // === Structs ===
 public enum PlayerStatus {
@@ -42,14 +45,10 @@ public struct Pay has drop, store {
     coin_idx: u64,
 }
 
-// // Amount to be transfered to a recipient slot
-// public struct Rake<phantom T> has store {
-//     amount: Balance<T>,
-// }
-
 public struct Award has drop, store {
     // identical to settle_version
     player_id: u64,
+    bonus_id: ID,
     bonus_identifier: String,
 
 }
@@ -71,8 +70,8 @@ public fun create_settle(player_id: u64, amount: u64, eject: bool): Settle {
     Settle { player_id, amount, eject }
 }
 
-public fun create_award(player_id: u64, bonus_identifier: String): Award {
-    Award { player_id, bonus_identifier }
+public fun create_award(player_id: u64, bonus_id: ID, bonus_identifier: String): Award {
+    Award { player_id, bonus_id, bonus_identifier }
 }
 
 public fun handle_settles<T>(
@@ -81,7 +80,7 @@ public fun handle_settles<T>(
     mut coins: vector<Coin<T>>,
     ctx: &mut TxContext,
 ) {
-    assert!(game.validat_sender(&ctx.sender()), EInvalidSettleSender);
+    assert!(game.validat_sender(&ctx.sender()), EInvalidSettleTxSender);
     let mut pays: vector<Pay> = vector::empty();
     let mut i = 0;
     let n = vector::length(&settles);
@@ -91,7 +90,7 @@ public fun handle_settles<T>(
         let mut j = 0;
         let settle = vector::borrow(&settles, i);
         while (j < m) {
-            if (game.is_settle_player(j, settle.player_id)) {
+            if (game.validate_player_at_idx(j, settle.player_id)) {
                 vector::push_back(
                     &mut pays,
                     Pay {
@@ -133,24 +132,46 @@ public fun handle_transfer<T>(
     ctx: &mut TxContext,
 ) {
     let sender = ctx.sender();
-    assert!(game.validat_sender(&sender), EInvalidTransferSender);
+    assert!(game.validat_sender(&sender), EInvalidTransferTxSender);
 
     let payment: Balance<T> = game.split_balance(amount);
     slot.deposit(payment);
 }
 
-#[allow(unused_variable)]
-public fun handle_bounses<T>(
+public fun handle_coin_bonus<T, K: key + store>(
     game: &mut Game<T>,
-    bonuses: vector<Award>,
+    bonus: Bonus<Coin<K>>,
+    identifier: String,
+    player_id: u64,
+    player_addr: address,
     ctx: &mut TxContext,
 ) {
+    let sender = ctx.sender();
+    assert!(game.validat_sender(&sender), EInvalidBonusTxSender);
+    assert!(game.has_bonus(&bonus.bonus_id()), EBonusNotFoundInGame);
+    assert!(game.validate_player(player_id), EInvalidBonusReceiver);
+    assert!(bonus.validate_identifer(identifier), EInvalidBonusIdentifier);
 
+    let (bonus_uid, _amount, coin) = unpack_coin_bonus(bonus);
+    transfer::public_transfer(coin, player_addr);
+    object::delete(bonus_uid);
 }
-#[allow(unused_variable)]
-public fun settle(
 
-    _ctx: &mut TxContext
+public fun handle_obj_bonus<T, K: key + store>(
+    game: &mut Game<T>,
+    bonus: Bonus<K>,
+    identifier: String,
+    player_id: u64,
+    player_addr: address,
+    ctx: &mut TxContext,
 ) {
+    let sender = ctx.sender();
+    assert!(game.validat_sender(&sender), EInvalidBonusTxSender);
+    assert!(game.has_bonus(&bonus.bonus_id()), EBonusNotFoundInGame);
+    assert!(game.validate_player(player_id), EInvalidBonusReceiver);
+    assert!(bonus.validate_identifer(identifier), EInvalidBonusIdentifier);
 
+    let (bonus_uid, _amount, obj) = unpack_obj_bonus(bonus);
+    transfer::public_transfer(obj, player_addr);
+    object::delete(bonus_uid);
 }

@@ -272,7 +272,6 @@ public fun attach_bnous<T>(
     game.bonuses.push_back(bonus_id);
 }
 
-
 public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
     assert!(vector::is_empty(&game.players), EGameStillHasPlayers);
@@ -457,7 +456,7 @@ public(package) fun eject_player<T>(self: &mut Game<T>, index: u64) {
     let _ = vector::remove(&mut self.players, index);
 }
 
-public(package) fun is_settle_player<T>(
+public(package) fun validate_player_at_idx<T>(
     self: &Game<T>,
     index: u64,
     player_id: u64
@@ -466,12 +465,65 @@ public(package) fun is_settle_player<T>(
     player.access_version == player_id
 }
 
+public(package) fun validate_player<T>(self: &Game<T>, player_id: u64): bool {
+    let mut i = 0;
+    let n = self.player_num() as u64;
+    let mut found = false;
+    while(i < n) {
+        let player = self.players.borrow(i);
+        if (player.access_version == player_id) {
+            found = true;
+            break
+        };
+        i = i + 1;
+    };
+    found
+}
+
 // if game has no transactor, this returns false
 public(package) fun validat_sender<T>(self: &Game<T>, sender: &address): bool {
     self.transactor_addr.contains(sender)
 }
 
+public(package) fun has_bonus<T>(self: &Game<T>, bonus_id: &ID): bool {
+    self.bonuses.contains(bonus_id)
+}
+
+public(package) fun validate_identifer<T: key + store>(
+    self: &Bonus<T>,
+    identifier: String
+): bool {
+    self.identifier == identifier
+}
+
+public(package) fun is_coin_bonus<T: key + store>(self: &Bonus<T>): bool {
+    self.amount != 0
+}
+
+public(package) fun is_obj_bonus<T: key + store>(self: &Bonus<T>): bool {
+    self.amount == 0
+}
+
+public(package) fun unpack_coin_bonus<T: key + store>(
+    bonus: Bonus<Coin<T>>
+): (UID, u64, Coin<T>) {
+    let Bonus { id, amount, object, .. } = bonus;
+    (id, amount, object)
+}
+
+public(package) fun unpack_obj_bonus<T: key + store>(
+    bonus: Bonus<T>
+): (UID, u64, T) {
+    let Bonus { id, amount, object, .. } = bonus;
+    (id, amount, object)
+}
+
+
 // === Public-view functions ===
+public fun bonus_id<T: key + store>(self: &Bonus<T>): ID {
+    self.id.uid_to_inner()
+}
+
 public fun title<T>(self: &Game<T>): String {
     self.title
 }
