@@ -87,15 +87,15 @@ public struct Vote has drop, store {
     vote_type: VoteType,
 }
 
-#[allow(unused_field)]
-public struct Bonus<phantom T> has key {
+public struct Bonus<T: key + store> has key {
     id: UID,
     identifier: String,
-    token_addr: address,
-    amount: u64,
-    balance: Balance<T>
+    token_addr: String,
+    amount: u64,                // if 0, object is an nft
+    object: T                   // Coin<T> or an nft object
 }
 
+// The parameter 'T' is only used as an argument to phantom parameters
 /// On-chain game account
 public struct Game<phantom T> has key {
     id: UID,
@@ -226,6 +226,52 @@ public fun create_game<T>(
     // share the game so everyone can access it
     transfer::share_object(game);
 }
+
+public fun create_coin_bonus<T: key + store>(
+    identifier: String,
+    token_addr: String,
+    coin: Coin<T>,
+    ctx: &mut TxContext
+): ID {
+    let amount = coin.value();
+    let bonus: Bonus<Coin<T>> = Bonus {
+        id: object::new(ctx),
+        identifier,
+        token_addr,
+        amount,
+        object: coin
+    };
+    let bonus_id = bonus.id.uid_to_inner();
+    transfer::transfer(bonus, ctx.sender());
+    bonus_id
+}
+
+public fun create_object_bonus<T: key + store>(
+    identifier: String,
+    token_addr: String,
+    obj: T,
+    ctx: &mut TxContext
+): ID {
+    let bonus: Bonus<T> = Bonus {
+        id: object::new(ctx),
+        identifier,
+        token_addr,
+        amount: 0,
+        object: obj
+    };
+    let bonus_id = bonus.id.uid_to_inner();
+    transfer::transfer(bonus, ctx.sender());
+    bonus_id
+}
+
+public fun attach_bnous<T>(
+    game: &mut Game<T>,
+    bonus_id: ID,
+    _ctx: &mut TxContext
+) {
+    game.bonuses.push_back(bonus_id);
+}
+
 
 public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
