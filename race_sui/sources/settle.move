@@ -7,10 +7,14 @@ use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use std::debug;
 use race_sui::game::{Game, EntryLock};
+use race_sui::recipient::{RecipientSlot};
 
 // === Errors ===
 const ESettlePlayerNotFound: u64 = 450;
 const ESettleCoinMismatch: u64 = 451;
+const EInvalidSettleSender: u64 = 453;
+const EInvalidTransferSender: u64 = 454;
+const EInvalidBonusSender: u64 = 455;
 
 // === Structs ===
 public enum PlayerStatus {
@@ -38,10 +42,10 @@ public struct Pay has drop, store {
     coin_idx: u64,
 }
 
-public struct Transfer has drop, store {
-    slot_id: u8,
-    amount: u64,
-}
+// // Amount to be transfered to a recipient slot
+// public struct Rake<phantom T> has store {
+//     amount: Balance<T>,
+// }
 
 public struct Award has drop, store {
     // identical to settle_version
@@ -50,9 +54,9 @@ public struct Award has drop, store {
 
 }
 #[allow(unused_field)]
-public struct SettleParams has drop {
+public struct SettleParams<phantom T> {
     settles: vector<Settle>,
-    transfers: vector<Transfer>,
+    // transfers: vector<Rake<T>>,
     awards: vector<Award>,
     checkpoint: vector<u8>,
     access_version: u64,
@@ -67,10 +71,6 @@ public fun create_settle(player_id: u64, amount: u64, eject: bool): Settle {
     Settle { player_id, amount, eject }
 }
 
-public fun create_transfer(slot_id: u8, amount: u64,): Transfer {
-    Transfer { slot_id, amount }
-}
-
 public fun create_award(player_id: u64, bonus_identifier: String): Award {
     Award { player_id, bonus_identifier }
 }
@@ -81,6 +81,7 @@ public fun handle_settles<T>(
     mut coins: vector<Coin<T>>,
     ctx: &mut TxContext,
 ) {
+    assert!(game.validat_sender(&ctx.sender()), EInvalidSettleSender);
     let mut pays: vector<Pay> = vector::empty();
     let mut i = 0;
     let n = vector::length(&settles);
@@ -125,18 +126,23 @@ public fun handle_settles<T>(
     vector::destroy_empty(coins); // if any coin left unconsumed, abort with error
 }
 
-#[allow(unused_variable)]
-public fun handle_transfers<T>(
+public fun handle_transfer<T>(
     game: &mut Game<T>,
-    settles: vector<Transfer>,
+    slot: &mut RecipientSlot<T>,
+    amount: u64,
     ctx: &mut TxContext,
 ) {
+    let sender = ctx.sender();
+    assert!(game.validat_sender(&sender), EInvalidTransferSender);
 
+    let payment: Balance<T> = game.split_balance(amount);
+    slot.deposit(payment);
 }
+
 #[allow(unused_variable)]
 public fun handle_bounses<T>(
     game: &mut Game<T>,
-    settles: vector<Award>,
+    bonuses: vector<Award>,
     ctx: &mut TxContext,
 ) {
 

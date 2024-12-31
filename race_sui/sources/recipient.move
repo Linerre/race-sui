@@ -142,13 +142,11 @@ public fun create_recipient(
     transfer::share_object(recipient);
 }
 
-/// Allow anyone to deposit coins into the balance of a recipient slot
-public fun deposit_to_slot<T>(
-    slot: &mut RecipientSlot<T>,
-    coin: Coin<T>
+public(package) fun deposit<T>(
+    self: &mut RecipientSlot<T>,
+    amount: Balance<T>
 ) {
-    let coin_balance = coin::into_balance(coin);
-    balance::join(&mut slot.balance, coin_balance);
+    balance::join(&mut self.balance, amount);
 }
 
 

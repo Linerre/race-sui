@@ -126,7 +126,7 @@ public struct Game<phantom T> has key {
     deposits: vector<PlayerDeposit>,
     /// game servers (max: 10)
     servers: vector<ServerJoin>,
-    /// balance is the total deposits from players, used for settlement
+    /// total deposits (stake) from players and used for settles and transfers
     balance: Balance<T>,
     /// data length
     data_len: u32,
@@ -268,7 +268,7 @@ public fun publish(
 ///
 /// When a server joins an on-chain game, it can be either of the following cases:
 /// 1. It is the first (indexed as 0) joined and thus it becomes the transactor
-/// 2. It is the nth joined where n is in the range of [1,10] (inclusive)
+/// 2. It is the nth joined where n is in the range of [1,9] (inclusive)
 public fun serve_game<T>(
     game: &mut Game<T>,
     server: &Server,
@@ -398,8 +398,11 @@ public fun join_game<T>(
     );
 }
 
-/// Split amount out of game's balance.  This function is required as Sui Move
-/// does not any function outside this module to write to any fields of `Game`
+// === Public within package ===
+// These setters and getters are necessary as Sui Move makes all fields of any
+// objects defined in this module private to this module only
+
+/// Split amount out of game's balance.
 public(package) fun split_balance<T>(self: &mut Game<T>, amount: u64): Balance<T> {
     balance::split(&mut self.balance, amount)
 }
@@ -415,6 +418,11 @@ public(package) fun is_settle_player<T>(
 ): bool {
     let player = vector::borrow(&self.players, index);
     player.access_version == player_id
+}
+
+// if game has no transactor, this returns false
+public(package) fun validat_sender<T>(self: &Game<T>, sender: &address): bool {
+    self.transactor_addr.contains(sender)
 }
 
 // === Public-view functions ===
