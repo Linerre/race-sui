@@ -106,8 +106,8 @@ public struct Game<phantom T> has key {
     // TODO: may simplify this to a string arweave tx id
     /// AccountAddress to the game (WASM) as an NFT
     bundle_addr: address,
-    /// token type used in this game, e.g. "0x02::sui::SUI"
-    coin_type: String,
+    /// coin type used in this game, e.g. "0x02::sui::SUI"
+    token_addr: String,
     /// SuiAddress to the game owner that creates this game object
     owner: address,
     /// the recipient account address (AccountAddress in SDK)
@@ -190,7 +190,7 @@ public fun create_game<T>(
     bundle_addr: address,
     owner: address,
     recipient_addr: address,
-    coin_type: String,
+    token_addr: String,
     max_players: u16,
     data_len: u32,
     data: vector<u8>,
@@ -205,7 +205,7 @@ public fun create_game<T>(
         owner,
         recipient_addr,
         transactor_addr: option::none(),
-        coin_type,
+        token_addr,
         access_version: 0,
         settle_version: 0,
         max_players,
