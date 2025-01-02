@@ -5,7 +5,7 @@ use race_sui::server_table::{ServerTable, add_server, owner_exists};
 
 
 // === Error codes ===
-const EOwnerAlreadyRegisteredServer: u64 = 430;
+const EUserAlreadyOwnsServer: u64 = 430;
 
 // === Struct ===
 public struct Server has key {
@@ -27,18 +27,15 @@ public fun register_server(
 ) {
     let owner: address = ctx.sender();
 
-    if (owner_exists(server_table, owner))
-    abort EOwnerAlreadyRegisteredServer;
+    if (owner_exists(server_table, owner)) abort EUserAlreadyOwnsServer;
 
     let server = Server {
         id: object::new(ctx),
         owner,
         endpoint,
     };
-    // record the owner-server relation in the table
+    // record the server id and transfer it to sender
     add_server(server_table, owner, object::uid_to_inner(&server.id));
-
-    // copy newly created server addr for return
     transfer::transfer(server, owner);
 }
 
