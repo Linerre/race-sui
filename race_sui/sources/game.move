@@ -229,7 +229,6 @@ public fun create_game<T>(
     transfer::share_object(game);
 }
 
-#[allow(lint(self_transfer))]
 public fun create_coin_bonus<T: key + store>(
     identifier: String,
     token_addr: String,
@@ -237,7 +236,6 @@ public fun create_coin_bonus<T: key + store>(
     coin: T,
     ctx: &mut TxContext
 ): ID {
-    let sender = ctx.sender();
     let bonus: Bonus<T> = Bonus {
         id: object::new(ctx),
         identifier,
@@ -246,11 +244,10 @@ public fun create_coin_bonus<T: key + store>(
         object: coin
     };
     let bonus_id = bonus.id.uid_to_inner();
-    transfer::transfer(bonus, sender);
+    transfer::share_object(bonus);
     bonus_id
 }
 
-#[allow(lint(self_transfer))]
 public fun create_object_bonus<T: key + store>(
     identifier: String,
     obj: T,
@@ -264,7 +261,7 @@ public fun create_object_bonus<T: key + store>(
         object: obj
     };
     let bonus_id = bonus.id.uid_to_inner();
-    transfer::transfer(bonus, ctx.sender());
+    transfer::share_object(bonus);
     bonus_id
 }
 
