@@ -348,14 +348,13 @@ public fun serve_game<T>(
 }
 
 /// Player joins a game
-#[allow(lint(self_transfer))]
 public fun join_game<T>(
     game: &mut Game<T>,
     position: u16,
     _access_version: u64,
     join_amount: u64,
     verify_key: String,
-    mut player_coin: Coin<T>,
+    player_coin: Coin<T>,
     ctx: &mut TxContext
 ) {
     let player_num = game.player_num();
@@ -423,14 +422,12 @@ public fun join_game<T>(
             position: avail_pos,
             access_version: game.access_version,
             verify_key,
-        });
+        }
+    );
 
     // update game balance and return the remaining coin to player
-    let payment: Coin<T> = coin::split(&mut player_coin, join_amount, ctx);
-    let player_balance: Balance<T> = coin::into_balance(payment);
+    let player_balance: Balance<T> = coin::into_balance(player_coin);
     balance::join(&mut game.balance, player_balance);
-    // FIXME: cannot transfer the remaining coin, use SplitCoin isntead
-    transfer::public_transfer(player_coin, sender);
 
     // record this deposit in game deposits
     vector::push_back(
