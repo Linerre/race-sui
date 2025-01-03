@@ -18,6 +18,8 @@ const EPositionOutOfRange: u64 = 416;
 const EDuplicatePlayerJoin: u64 = 417;
 const EGameIsFull: u64 = 418;
 const EInvalideVoteType: u64 = 419;
+#[allow(unused_const)]
+const EInsuffcientCoinBalance: u64 = 420;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -232,21 +234,19 @@ public fun create_coin_bonus<T: key + store>(
     identifier: String,
     token_addr: String,
     amount: u64,
-    mut coin: Coin<T>,
+    coin: T,
     ctx: &mut TxContext
 ): ID {
     let sender = ctx.sender();
-    let bonus_coin: Coin<T> = coin.split(amount, ctx);
-    let bonus: Bonus<Coin<T>> = Bonus {
+    let bonus: Bonus<T> = Bonus {
         id: object::new(ctx),
         identifier,
         token_addr,
         amount,
-        object: bonus_coin
+        object: coin
     };
     let bonus_id = bonus.id.uid_to_inner();
     transfer::transfer(bonus, sender);
-    transfer::public_transfer(coin, sender);
     bonus_id
 }
 
@@ -268,7 +268,7 @@ public fun create_object_bonus<T: key + store>(
     bonus_id
 }
 
-public fun attach_bnous<T>(
+public fun attach_bonus<T>(
     game: &mut Game<T>,
     bonus_id: ID,
     _ctx: &mut TxContext
@@ -432,6 +432,7 @@ public fun join_game<T>(
     let payment: Coin<T> = coin::split(&mut player_coin, join_amount, ctx);
     let player_balance: Balance<T> = coin::into_balance(payment);
     balance::join(&mut game.balance, player_balance);
+    // FIXME: cannot transfer the remaining coin, use SplitCoin isntead
     transfer::public_transfer(player_coin, sender);
 
     // record this deposit in game deposits
