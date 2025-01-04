@@ -345,6 +345,11 @@ public fun serve_game<T>(
             verify_key,
         }
     );
+
+    // if this is the first-joined server, make it transactor
+    if (game.servers.length() == 1 && game.transactor_addr.is_none()) {
+        game.transactor_addr.swap_or_fill(server_addr);
+    };
 }
 
 /// Player joins a game
