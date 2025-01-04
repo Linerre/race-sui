@@ -18,8 +18,7 @@ const EPositionOutOfRange: u64 = 416;
 const EDuplicatePlayerJoin: u64 = 417;
 const EGameIsFull: u64 = 418;
 const EInvalideVoteType: u64 = 419;
-#[allow(unused_const)]
-const EInsuffcientCoinBalance: u64 = 420;
+const EGameBonusNotClaimed: u64 = 420;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -275,7 +274,8 @@ public fun attach_bonus<T>(
 
 public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
-    assert!(vector::is_empty(&game.players), EGameStillHasPlayers);
+    assert!(game.players.is_empty(), EGameStillHasPlayers);
+    assert!(game.bonuses.is_empty(), EGameBonusNotClaimed);
 
     let Game {id, balance, bonuses, .. } = game;
     // will abort with ENonZero if the balance is not zero
