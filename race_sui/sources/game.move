@@ -113,7 +113,7 @@ public struct Game<phantom T> has key {
     owner: address,
     /// the recipient account address (AccountAddress in SDK)
     recipient_addr: address,
-    /// AccountAddress of the frist server joined the game,
+    /// address of the owner of the server that frist joined this game,
     transactor_addr: Option<address>,
     /// a serial number, increased by 1 after each PlayerJoin or ServerJoin
     access_version: u64,
@@ -348,7 +348,7 @@ public fun serve_game<T>(
 
     // if this is the first-joined server, make it transactor
     if (game.servers.length() == 1 && game.transactor_addr.is_none()) {
-        game.transactor_addr.swap_or_fill(server_addr);
+        game.transactor_addr.swap_or_fill(server.owner());
     };
 }
 
