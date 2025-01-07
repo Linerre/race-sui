@@ -485,8 +485,23 @@ public(package) fun validate_player<T>(self: &Game<T>, player_id: u64): bool {
 }
 
 // if game has no transactor, this returns false
-public(package) fun validat_sender<T>(self: &Game<T>, sender: &address): bool {
+public(package) fun validate_sender<T>(self: &Game<T>, sender: &address): bool {
     self.transactor_addr.contains(sender)
+}
+
+public(package) fun validate_server<T>(self: &Game<T>, server_owner: address): bool {
+    let mut i = 0;
+    let n = self.servers.length();
+    let mut found = false;
+    while (i < n) {
+        let sj = self.servers.borrow(i);
+        if (sj.addr == server_owner) {
+            found = true;
+            break
+        };
+        i = i + 1;
+    };
+    found
 }
 
 public(package) fun has_bonus<T>(self: &Game<T>, bonus_id: &ID): bool {
