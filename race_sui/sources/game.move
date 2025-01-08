@@ -26,7 +26,7 @@ public struct GameAdminCap has key {
     id: UID,
 }
 
-public enum EntryLock has drop, store {
+public enum EntryLock has copy, drop, store {
     /// default
     Open,
     JoinOnly,
@@ -50,8 +50,7 @@ public enum EntryType has copy, drop, store {
     Disabled,
 }
 
-
-public enum DepositStatus has drop, store {
+public enum DepositStatus has copy, drop, store {
     /// Default
     Pending,
     Rejected,
@@ -73,7 +72,7 @@ public struct ServerJoin has drop, store {
     verify_key: String,
 }
 
-public struct PlayerDeposit has drop, store {
+public struct PlayerDeposit has copy, drop, store {
     addr: address,
     amount: u64,
     access_version: u64,
