@@ -58,14 +58,14 @@ public enum DepositStatus has copy, drop, store {
     Accepted,
 }
 
-public struct PlayerJoin has drop, store {
+public struct PlayerJoin has copy, drop, store {
     addr: address,
     position: u16,
     access_version: u64,
     verify_key: String,
 }
 
-public struct ServerJoin has drop, store {
+public struct ServerJoin has copy, drop, store {
     addr: address,
     endpoint: String,
     access_version: u64,
@@ -88,7 +88,7 @@ public struct Vote has drop, store {
 }
 
 // Like `Prize` but only contains the information for qeurying purposes
-public struct Bonus has drop, store {
+public struct Bonus has copy, drop, store {
     // prize object id
     id: ID,
     // bonus identifier
@@ -489,8 +489,19 @@ public(package) fun split_balance<T>(self: &mut Game<T>, amount: u64): Balance<T
     balance::split(&mut self.balance, amount)
 }
 
-public(package) fun eject_player<T>(self: &mut Game<T>, index: u64) {
-    let _ = vector::remove(&mut self.players, index);
+// Remove the players marked `eject` in settlement
+public(package) fun eject_players<T>(self: &mut Game<T>, ejects: vector<u64>) {
+    let mut i = 0;
+    let mut to_retain = vector::empty<PlayerJoin>();
+    let n = self.players.length();
+    while (i < n) {
+        if (!ejects.contains(&i)) {
+            let player = self.players.borrow_mut(i);
+            to_retain.push_back(*player);
+        };
+        i = i + 1;
+    };
+    self.players = to_retain;
 }
 
 public(package) fun update_settle_verson<T>(self: &mut Game<T>, new_settle_version: u64) {
@@ -634,7 +645,6 @@ public(package) fun update_deposits<T>(
         i = i + 1;
     }
 }
-
 
 // === Public-view functions ===
 public fun bonus_id<T: key + store>(self: &Prize<T>): ID {

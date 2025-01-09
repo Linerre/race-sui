@@ -64,6 +64,7 @@ public fun handle_settles<T>(
 ) {
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
     let mut pays: vector<Pay> = vector::empty();
+    let mut ejects: vector<u64> = vector::empty();
     let mut i = 0;
     let n = vector::length(&settles);
     let m = game.player_num() as u64;
@@ -78,11 +79,11 @@ public fun handle_settles<T>(
                     Pay {
                         receiver: game.player_addr(j),
                         amount: settle.amount,
-                        coin_idx: i
+                        coin_idx: i // index of settle or coin
                     }
                 );
                 if (settle.eject) {
-                    game.eject_player(j);
+                    ejects.push_back(j); // record players to be removed
                 };
                 found = true;
                 break
@@ -93,19 +94,28 @@ public fun handle_settles<T>(
         i = i + 1;
     };
 
+    game.eject_players(ejects);
+
     i = 0;
     let k = vector::length(&pays);
     assert!(n == k, ESettleCoinMismatch);
+    // add settle value to players' coins
     while (i < k) {
         let payinfo = vector::borrow(&pays, i);
         let payment: Balance<T> = game.split_balance(payinfo.amount);
-        // FIXME: should not remove while looping through
-        let mut paycoin: Coin<T> = vector::remove(&mut coins, payinfo.coin_idx);
+        let paycoin: &mut Coin<T> = coins.borrow_mut(payinfo.coin_idx);
         paycoin.join(coin::from_balance(payment, ctx));
-        transfer::public_transfer(paycoin, payinfo.receiver);
         i = i + 1;
     };
-    vector::destroy_empty(coins); // if any coin left unconsumed, abort with error
+    // return the value-added coins to their owners
+    while (i >= 0) {
+        let payinfo = pays.pop_back();
+        let paycoin: Coin<T> = coins.pop_back();
+        transfer::public_transfer(paycoin, payinfo.receiver);
+        i = i - 1;
+    };
+    vector::destroy_empty(pays);
+    vector::destroy_empty(coins);
 }
 
 public fun handle_transfer<T>(
