@@ -87,7 +87,20 @@ public struct Vote has drop, store {
     vote_type: VoteType,
 }
 
-public struct Bonus<T: key + store> has key {
+// Like `Prize` but only contains the information for qeurying purposes
+public struct Bonus has drop, store {
+    // prize object id
+    id: ID,
+    // bonus identifier
+    identifier: String,
+    // 0xpackageid::Game::GameNFT or 0x2::coin::Coin<0xxxx::coin_type::CoinStruct>
+    token_addr: String,
+    // coin value or 0 (nft)
+    amount: u64,
+}
+
+// The object that holds the actual bonus (A coin or NFT), used in settlement
+public struct Prize<T: key + store> has key {
     id: UID,
     identifier: String,
     token_addr: String,
@@ -143,7 +156,7 @@ public struct Game<phantom T> has key {
     /// lock types for entry
     entry_lock: EntryLock,
     /// game bonuses, each is an on-chain object
-    bonuses: vector<ID>
+    bonuses: vector<Bonus>
 }
 
 public struct GameNFT has key, store {
@@ -220,7 +233,7 @@ public fun create_game<T>(
         data,
         checkpoint: vector::empty<u8>(),
         entry_lock: EntryLock::Open,
-        bonuses: vector::empty<ID>()
+        bonuses: vector::empty<Bonus>()
     };
 
     // share the game so everyone can access it
@@ -233,42 +246,53 @@ public fun create_coin_bonus<T: key + store>(
     amount: u64,
     coin: T,
     ctx: &mut TxContext
-): ID {
-    let bonus: Bonus<T> = Bonus {
+): Bonus {
+    let prize: Prize<T> = Prize {
         id: object::new(ctx),
         identifier,
         token_addr,
         amount,
         object: coin
     };
-    let bonus_id = bonus.id.uid_to_inner();
-    transfer::share_object(bonus);
-    bonus_id
+
+    let prize_id = prize.id.uid_to_inner();
+    transfer::share_object(prize);
+    Bonus {
+        id: prize_id,
+        identifier,
+        token_addr,
+        amount
+    }
 }
 
 public fun create_object_bonus<T: key + store>(
     identifier: String,
     obj: T,
     ctx: &mut TxContext
-): ID {
-    let bonus: Bonus<T> = Bonus {
+): Bonus {
+    let prize: Prize<T> = Prize {
         id: object::new(ctx),
         identifier,
         token_addr: string::utf8(b"object_bonus"),
         amount: 0,
         object: obj
     };
-    let bonus_id = bonus.id.uid_to_inner();
-    transfer::share_object(bonus);
-    bonus_id
+    let prize_id = prize.id.uid_to_inner();
+    transfer::share_object(prize);
+    Bonus {
+        id: prize_id,
+        identifier,
+        token_addr: string::utf8(b"object_bonus"),
+        amount: 0
+    }
 }
 
 public fun attach_bonus<T>(
     game: &mut Game<T>,
-    bonus_id: ID,
+    bonus: Bonus,
     _ctx: &mut TxContext
 ) {
-    game.bonuses.push_back(bonus_id);
+    game.bonuses.push_back(bonus);
 }
 
 public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
@@ -503,42 +527,77 @@ public(package) fun validate_server<T>(self: &Game<T>, server_owner: address): b
     found
 }
 
-public(package) fun has_bonus<T>(self: &Game<T>, bonus_id: &ID): bool {
-    self.bonuses.contains(bonus_id)
-}
-
 public(package) fun validate_identifer<T: key + store>(
-    self: &Bonus<T>,
+    self: &Prize<T>,
     identifier: String
 ): bool {
     self.identifier == identifier
 }
 
-public(package) fun is_coin_bonus<T: key + store>(self: &Bonus<T>): bool {
-    self.amount != 0
+public(package) fun has_bonus<T>(self: &Game<T>, bonus_id: &ID): bool {
+    let mut i = 0;
+    let n = self.bonuses.length();
+    let mut found = false;
+    while (i < n) {
+        let b = self.bonuses.borrow(i);
+        if (b.id == bonus_id) {
+            found = true;
+            break
+        };
+        i = i + 1;
+    };
+    found
 }
 
-public(package) fun is_obj_bonus<T: key + store>(self: &Bonus<T>): bool {
-    self.amount == 0
-}
-
-public(package) fun unpack_coin_bonus<T: key + store>(
-    bonus: Bonus<Coin<T>>
-): (UID, u64, Coin<T>) {
-    let Bonus { id, amount, object, .. } = bonus;
-    (id, amount, object)
-}
-
-public(package) fun unpack_obj_bonus<T: key + store>(
-    bonus: Bonus<T>
+public(package) fun unpack_bonus<T: key + store>(
+    bonus: Prize<T>
 ): (UID, u64, T) {
-    let Bonus { id, amount, object, .. } = bonus;
+    let Prize { id, amount, object, .. } = bonus;
     (id, amount, object)
+}
+
+public(package) fun is_pending(self: &PlayerDeposit): bool {
+    match (self.status) {
+        DepositStatus::Pending => true,
+        _ => false
+    }
+}
+
+public(package) fun retain_pending_deposits<T>(
+    self: &mut Game<T>,
+) {
+    let mut i = 0;
+    let n = self.deposits.length();
+    let mut to_retain = vector::empty<PlayerDeposit>();
+    while (i < n) {
+        let deposit = self.deposits.borrow(i);
+        if (deposit.is_pending()) {
+            to_retain.push_back(*deposit);
+        };
+        i = i + 1;
+    };
+    self.deposits = to_retain;
+}
+
+public(package) fun update_deposits<T>(
+    self: &mut Game<T>,
+    accept_deposits: vector<u64>
+) {
+    let mut i = 0;
+    let n = self.deposits.length();
+    while (i < n) {
+        let game_deposit = self.deposits.borrow_mut(i);
+        let deposit = accept_deposits.borrow(i);
+        if (*deposit == game_deposit.access_version) {
+            game_deposit.status = DepositStatus::Accepted;
+        };
+        i = i + 1;
+    }
 }
 
 
 // === Public-view functions ===
-public fun bonus_id<T: key + store>(self: &Bonus<T>): ID {
+public fun bonus_id<T: key + store>(self: &Prize<T>): ID {
     self.id.uid_to_inner()
 }
 
