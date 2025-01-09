@@ -470,6 +470,16 @@ public fun join_game<T>(
     );
 }
 
+public fun create_entry_lock(variant: u8): Option<EntryLock> {
+    match (variant) {
+        0 => option::some(EntryLock::Open),
+        1 => option::some(EntryLock::JoinOnly),
+        2 => option::some(EntryLock::DepositOnly),
+        3 => option::some(EntryLock::Closed),
+        _ => option::none<EntryLock>()
+    }
+}
+
 // === Public within package ===
 // These setters and getters are necessary as Sui Move makes all fields of any
 // objects defined in this module private to this module only
@@ -481,6 +491,36 @@ public(package) fun split_balance<T>(self: &mut Game<T>, amount: u64): Balance<T
 
 public(package) fun eject_player<T>(self: &mut Game<T>, index: u64) {
     let _ = vector::remove(&mut self.players, index);
+}
+
+public(package) fun update_settle_verson<T>(self: &mut Game<T>, new_settle_version: u64) {
+    self.settle_version = new_settle_version;
+}
+
+public(package) fun update_checkpoint_data<T>(
+    self: &mut Game<T>,
+    new_checkpoint_data: vector<u8>)
+{
+    self.checkpoint = new_checkpoint_data;
+}
+
+public(package) fun update_entry_lock<T>(
+    self: &mut Game<T>,
+    new_entry_lock: EntryLock
+) {
+    self.entry_lock = new_entry_lock;
+}
+
+public(package) fun clear_players<T>(
+    self: &mut Game<T>,
+) {
+    self.players = vector::empty<PlayerJoin>();
+}
+
+public(package) fun clear_deposits<T>(
+    self: &mut Game<T>,
+) {
+    self.deposits = vector::empty<PlayerDeposit>();
 }
 
 public(package) fun validate_player_at_idx<T>(
