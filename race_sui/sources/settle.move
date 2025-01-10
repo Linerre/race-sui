@@ -167,7 +167,7 @@ public fun finish_settle<T>(
     game: &mut Game<T>,
     accept_deposits: vector<u64>,
     next_settle_version: u64,
-    new_checkpoint_data: vector<u8>,     // serialized data of checkpointonchain
+    checkpoint_data: vector<u8>,     // serialized data of checkpointonchain
     mut entry_lock: Option<EntryLock>,
     reset: bool,
     pre_checks: CheckPass,
@@ -176,7 +176,7 @@ public fun finish_settle<T>(
     game.update_deposits(accept_deposits);
     game.retain_pending_deposits();
     game.update_settle_verson(next_settle_version);
-    game.update_checkpoint_data(new_checkpoint_data);
+    game.update_checkpoint_data(checkpoint_data);
     if (entry_lock.is_some()) {
         game.update_entry_lock(entry_lock.extract());
     };

@@ -163,6 +163,7 @@ public struct GameNFT has key, store {
     id: UID,
     /// name for the game NFT
     name: String,
+    symbol: String,             // a short string representation of token info used in game
     bundle_url: String,         // arweave url to the game WASM
     cover_url: String           // arweave url to the cover image
 }
@@ -312,16 +313,17 @@ public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
 #[allow(lint(self_transfer))]
 public fun publish(
     name: String,
+    symbol: String,
     bundle_url: String,
-    cover_url: String,
     ctx: &mut TxContext
 ) {
     let sender = ctx.sender();
     let nft = GameNFT {
         id: object::new(ctx),
         name,
+        symbol,
         bundle_url,
-        cover_url
+        cover_url: string::utf8(b"https://ar-io.net/RxxOQizlpeUfLJzDmNYSCrBRtIWibkAUC-VhO2coFbE")
     };
 
     event::emit(GameMinted {
