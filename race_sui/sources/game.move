@@ -10,7 +10,7 @@ use race_sui::server::Server;
 const MAX_SERVER_NUM: u64 = 10;
 const EServerNumberExceedsLimit: u64 = 410;
 const EDuplicateServerJoin: u64 = 411;
-const EGameStillHasPlayers: u64 = 412;
+const EGameIsNotEmpty: u64 = 412;
 const EGameOwnerMismatch: u64 = 413;
 const EInvalidCashDeposit: u64 = 414;
 const EInvalidTicketAmount: u64 = 415;
@@ -19,6 +19,10 @@ const EDuplicatePlayerJoin: u64 = 417;
 const EGameIsFull: u64 = 418;
 const EInvalideVoteType: u64 = 419;
 const EGameBonusNotClaimed: u64 = 420;
+const EDuplicateDepositRejection: u64 = 4201;
+const EGameHasNoTransactor: u64 = 4202;
+const EInvalidRejectionTxSender: u64 = 4203;
+const ERejectDepositNotFound: u64 = 4204;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -298,7 +302,7 @@ public fun attach_bonus<T>(
 
 public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(ctx.sender() == game.owner, EGameOwnerMismatch);
-    assert!(game.players.is_empty(), EGameStillHasPlayers);
+    assert!(game.players.is_empty(), EGameIsNotEmpty);
     assert!(game.bonuses.is_empty(), EGameBonusNotClaimed);
 
     let Game {id, balance, bonuses, .. } = game;
@@ -375,6 +379,53 @@ public fun serve_game<T>(
     if (game.servers.length() == 1 && game.transactor_addr.is_none()) {
         game.transactor_addr.swap_or_fill(server.owner());
     };
+}
+
+
+/// Reject Player's Deposit
+public fun reject_deposits<T>(
+    game: &mut Game<T>,
+    rejects: vector<u64>,
+    ctx: &mut TxContext
+) {
+    assert!(game.transactor_addr.is_some(), EGameHasNoTransactor);
+    assert!(ctx.sender() == *game.transactor_addr.borrow(), EInvalidRejectionTxSender);
+
+    let n = rejects.length();
+    let m = game.deposits.length();
+    let mut i = 0;
+    while (i < n) {
+        let mut j = 0;
+        let mut found = false;
+        let reject = rejects.borrow(i);
+        while (j < m ) {
+            let deposit = game.deposits.borrow_mut(j);
+            if (deposit.access_version != reject) {
+                j = j + 1;
+                continue
+            } else {
+                found = true;
+                assert!(
+                    deposit.status == DepositStatus::Pending,
+                    EDuplicateDepositRejection
+                );
+                deposit.status = DepositStatus::Rejected;
+                let receiver = deposit.addr;
+                let payback: Coin<T> = coin::from_balance(
+                    game.balance.split(deposit.amount),
+                    ctx
+                );
+                transfer::public_transfer(payback, receiver);
+                deposit.status = DepositStatus::Refunded;
+                break
+            }
+        };
+        if (!found) abort ERejectDepositNotFound;
+        i = i + 1;
+    };
+
+    // Remove the rejected players as well so they can join again later
+    game.eject_players(rejects);
 }
 
 /// Player joins a game
@@ -498,7 +549,7 @@ public(package) fun eject_players<T>(self: &mut Game<T>, ejects: vector<u64>) {
     let n = self.players.length();
     while (i < n) {
         if (!ejects.contains(&i)) {
-            let player = self.players.borrow_mut(i);
+            let player = self.players.borrow(i);
             to_retain.push_back(*player);
         };
         i = i + 1;
