@@ -48,22 +48,33 @@ public struct RecipientSlot<phantom T> has key, store {
     balance: Balance<T>,
 }
 
-/// An on-chain recipient object. `sids` stores each slot's on-chain ID for query
+/// Like RecipientSlot but without the generic T, and thus can be stored in the
+/// Recipient below and makes it much easier for the front-end to query
+public struct Slot has store {
+    id: ID,
+    slot_id: u8,
+    slot_type: RecipientSlotType,
+    token_addr: String,
+    shares: vector<RecipientSlotShare>,
+    balance: u64
+}
+
+/// An on-chain recipient object. `slots` stores snapshots of each on-chain slots
 public struct Recipient has key, store {
     id: UID,
     cap_addr: Option<address>,
-    sids: vector<ID>,
+    slots: vector<Slot>,
 }
 
 /// To record the slot ids during the recipient creation and gets
 /// dropped once recipient is created -- hot potato pattern
 public struct RecipientBuilder {
-    sids: vector<ID>
+    slots: vector<Slot>
 }
 
 // ===  Public functions ===
 public fun new_recipient_builder(): RecipientBuilder {
-    RecipientBuilder { sids: vector::empty<ID>() }
+    RecipientBuilder { slots: vector::empty<Slot>() }
 }
 
 public fun create_slot_share(
@@ -103,10 +114,7 @@ public fun create_recipient_slot<T>(
     let slot_type = create_slot_type(slot_type_info);
 
     let id = object::new(ctx);
-    // this slot id is used for querying the game on chain
-    let sid = object::uid_to_inner(&id);
     let balance = balance::zero<T>();
-
     let slot = RecipientSlot {
         id,
         slot_id,
@@ -116,13 +124,15 @@ public fun create_recipient_slot<T>(
         balance
     };
 
+    // store a snapshot of the slot object
+    let RecipientBuilder { mut slots } = recipient_builder;
+    vector::push_back(&mut slots, slot.snapshot());
+
     // share the slot publicly
     transfer::share_object(slot);
 
-    // reconstruct the builder and pass it on
-    let RecipientBuilder { mut sids } = recipient_builder;
-    vector::push_back(&mut sids, sid);
-    RecipientBuilder { sids }
+    // pass the builder on
+    RecipientBuilder { slots }
 }
 
 public fun create_recipient(
@@ -131,12 +141,12 @@ public fun create_recipient(
     ctx: &mut TxContext,
 ) {
     // consume the hot potato
-    let RecipientBuilder { sids } = recipient_builder;
+    let RecipientBuilder { slots } = recipient_builder;
 
     let recipient = Recipient {
         id: object::new(ctx),
         cap_addr,
-        sids
+        slots
     };
 
     transfer::share_object(recipient);
@@ -209,4 +219,15 @@ fun calc_totals(
     (total_weights, total_claimed)
 }
 
+// take the reference of a slot object and make a slot struct
+fun snapshot<T>(self: &RecipientSlot<T>): Slot {
+    Slot {
+        id: self.id.uid_to_inner(),
+        slot_id: self.slot_id,
+        slot_type: self.slot_type,
+        token_addr: self.token_addr,
+        shares: self.shares,
+        balance: self.balance.value()
+    }
+}
 // === Tests ===
