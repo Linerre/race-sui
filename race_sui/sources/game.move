@@ -432,7 +432,6 @@ public fun reject_deposits<T>(
 public fun join_game<T>(
     game: &mut Game<T>,
     position: u16,
-    _access_version: u64,
     join_amount: u64,
     verify_key: String,
     player_coin: Coin<T>,
