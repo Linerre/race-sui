@@ -24,18 +24,10 @@
         {
           devShell = mkShell {
             buildInputs = [
-              sui-devnet # or sui-testnet, sui-mainnet
+              sui-testnet # or sui-mainnet, sui-testnet
               just
-              nodejs_20
-              nodePackages.pnpm
             ];
-
-            shellHook = ''
-            alias move="sui move"
-            '';
           };
-
-
         }
     );
 }
