@@ -4,7 +4,7 @@ local:
     RUST_LOG="off,sui_node=info" cargo run --bin sui-test-validator
 
 build:
-    cd race_sui && sui move build
+    cd race_sui && sui move build --skip-fetch-latest-git-deps
 
 byte:
     cd race_sui && sui client verify-bytecode-meter
