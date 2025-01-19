@@ -9,7 +9,7 @@ The easiest way to get started is use [Nix](https://hydra.nixos.org/build/278148
 $ nix develop
 ```
 
-After that you will be in a nix shell with all the needed toolchains available on the command line.  We also add [Just](https://github.com/casey/just) command runner for convenience. For example, to build or publish the package:
+After that, you will be in a nix shell with all the needed toolchains available on the command line.  We also add [Just](https://github.com/casey/just) command runner for convenience. For example, to build or publish the package:
 
 ``` console
 $ just build
@@ -17,4 +17,4 @@ $ just build
 $ just publish
 ```
 
-Use `just --list` or see Justfile` for all available recipes.
+Use `just --list` or see the `Justfile` for all the available recipes.
