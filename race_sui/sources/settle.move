@@ -139,7 +139,7 @@ public fun handle_bonus<T, K: key + store>(
     _ctx: &mut TxContext,
 ) {
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
-    assert!(game.validate_player(player_id), EInvalidBonusReceiver);
+    assert!(game.validate_player_id(player_id), EInvalidBonusReceiver);
     assert!(bonus.validate_identifer(identifier), EInvalidBonusIdentifier);
 
     let (bonus_uid, _amount, obj) = unpack_bonus(bonus);

@@ -23,6 +23,8 @@ const EDuplicateDepositRejection: u64 = 4201;
 const EGameHasNoTransactor: u64 = 4202;
 const EInvalidRejectionTxSender: u64 = 4203;
 const ERejectDepositNotFound: u64 = 4204;
+const EPlayerNotInGame: u64 = 4205;
+const EInvalidSettleVersion: u64 = 4206;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -506,18 +508,60 @@ public fun join_game<T>(
     );
 
     // update game balance and return the remaining coin to player
-    let player_balance: Balance<T> = coin::into_balance(player_coin);
-    balance::join(&mut game.balance, player_balance);
+    let player_balance: Balance<T> = player_coin.into_balance();
+    game.balance.join(player_balance);
 
     // record this deposit in game deposits
-    vector::push_back(
-        &mut game.deposits,
+    game.deposits.push_back(
         PlayerDeposit {
             addr: sender,
             amount: join_amount,
             access_version: game.access_version,
             settle_version: game.settle_version,
             status: DepositStatus::Accepted
+        }
+    );
+}
+
+// Allow players to rebuy
+public fun deposit<T>(
+    game: &mut Game<T>,
+    buyin: Coin<T>,
+    settle_version: u64,
+    ctx: &mut TxContext
+) {
+    let sender = ctx.sender();
+    assert!(game.settle_version == settle_version, EInvalidSettleVersion);
+    assert!(game.validate_player_addr(sender), EPlayerNotInGame);
+
+    match (&game.entry_type) {
+        EntryType::Cash {
+            min_deposit, max_deposit
+        } => { // deposit amount must be in the range of [min, max]
+            let amount = buyin.value();
+            if (amount < *min_deposit || amount > *max_deposit)
+                abort EInvalidCashDeposit;
+        },
+        EntryType::Ticket { amount } => {
+            assert!(buyin.value() == *amount, EInvalidTicketAmount);
+        },
+        _ => ()                 // unimplemented
+    };
+
+    let buyin_amount = buyin.value();
+    game.balance.join(buyin.into_balance());
+
+    // bump access version
+    game.access_version = game.access_version + 1;
+
+    // record this buyin_amount in game deposits
+    game.deposits.push_back(
+        PlayerDeposit {
+            addr: sender,
+            amount: buyin_amount,
+            access_version: game.access_version,
+            settle_version: settle_version,
+            status: DepositStatus::Pending
         }
     );
 }
@@ -595,13 +639,28 @@ public(package) fun validate_player_at_idx<T>(
     player.access_version == player_id
 }
 
-public(package) fun validate_player<T>(self: &Game<T>, player_id: u64): bool {
+public(package) fun validate_player_id<T>(self: &Game<T>, player_id: u64): bool {
     let mut i = 0;
     let n = self.player_num() as u64;
     let mut found = false;
     while(i < n) {
         let player = self.players.borrow(i);
         if (player.access_version == player_id) {
+            found = true;
+            break
+        };
+        i = i + 1;
+    };
+    found
+}
+
+public(package) fun validate_player_addr<T>(self: &Game<T>, addr: address): bool {
+    let mut i = 0;
+    let n = self.player_num() as u64;
+    let mut found = false;
+    while(i < n) {
+        let player = self.players.borrow(i);
+        if (player.addr == addr) {
             found = true;
             break
         };
