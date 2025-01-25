@@ -1,11 +1,8 @@
 module race_sui::server;
 
 use std::string::String;
-use race_sui::server_table::{ServerTable, add_server, owner_exists};
-
 
 // === Error codes ===
-const EUserAlreadyOwnsServer: u64 = 430;
 
 // === Struct ===
 public struct Server has key {
@@ -20,22 +17,19 @@ public struct Server has key {
 // === Entry function ===
 /// Create an on-chain server object whose ID will be stored in the
 /// global ServerTable. Each user address can own one server only
+#[allow(lint(self_transfer))]
 public fun register_server(
     endpoint: String,
-    server_table: &mut ServerTable,
     ctx: &mut TxContext
 ) {
     let owner: address = ctx.sender();
-
-    if (owner_exists(server_table, owner)) abort EUserAlreadyOwnsServer;
 
     let server = Server {
         id: object::new(ctx),
         owner,
         endpoint,
     };
-    // record the server id and transfer it to sender
-    add_server(server_table, owner, object::uid_to_inner(&server.id));
+
     transfer::transfer(server, owner);
 }
 

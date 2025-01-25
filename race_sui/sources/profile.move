@@ -3,13 +3,10 @@
 module race_sui::profile;
 
 use std::string::{Self, String};
-use race_sui::profile_table::{ProfileTable, add_profile, profile_exists};
-
 const MAX_NICK_LEN: u64 = 33;
 
 // === Errors ===
 const EProfileOwnerMismatch: u64 = 421;
-const EProfileAlreadyExists: u64 = 422;
 const EProfileNickTooLong: u64 = 423;
 
 // === Structs ===
@@ -25,33 +22,21 @@ public struct PlayerProfile has key, store {
 }
 
 // === Entry functions ===
+#[allow(lint(self_transfer))]
 public entry fun create_profile(
     nick: String,
     pfp: Option<address>,
-    profile_table: &mut ProfileTable,
     ctx: &mut TxContext
-): address {
+) {
     let sender = ctx.sender();
-
-    assert!(
-        !profile_exists(profile_table, sender),
-        EProfileAlreadyExists
-    );
 
     assert!(
         string::length(&nick) > 0 && string::length(&nick) <= MAX_NICK_LEN,
         EProfileNickTooLong
     );
 
-    // record the new profile in the map
     let profile = PlayerProfile { id: object::new(ctx), owner: sender, nick, pfp };
-    add_profile(profile_table, sender, object::uid_to_inner(&profile.id));
-
-    // copy newly created profile addr for return
-    let profile_addr = object::uid_to_address(&profile.id);
     transfer::transfer(profile, ctx.sender());
-
-    profile_addr
 }
 
 public entry fun update_profile(
@@ -68,10 +53,6 @@ public entry fun update_profile(
         profile.pfp = pfp;
     };
 }
-
-// public fun get_profile(ptable: &ProfileTable, player: address): Profile {
-//
-// }
 
 // === Public-view functions ===
 public fun nick(self: &PlayerProfile): String {

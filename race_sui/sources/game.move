@@ -321,6 +321,7 @@ public fun publish(
     name: String,
     symbol: String,
     bundle_url: String,
+    cover_url: String,
     ctx: &mut TxContext
 ) {
     let sender = ctx.sender();
@@ -329,7 +330,7 @@ public fun publish(
         name,
         symbol,
         bundle_url,
-        cover_url: string::utf8(b"https://ar-io.net/RxxOQizlpeUfLJzDmNYSCrBRtIWibkAUC-VhO2coFbE")
+        cover_url
     };
 
     event::emit(GameMinted {
