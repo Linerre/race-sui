@@ -13,7 +13,7 @@ addr:
     cd race_sui && sui client address
 
 publish:
-    cd race_sui && sui client publish --force
+    cd race_sui && sui client publish --force --skip-fetch-latest-git-deps
 
 test:
     cd race_sui && sui move test

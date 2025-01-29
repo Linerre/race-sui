@@ -48,8 +48,8 @@ public struct RecipientSlot<phantom T> has key, store {
     balance: Balance<T>,
 }
 
-/// Like RecipientSlot but without the generic T, and thus can be stored in the
-/// Recipient below and makes it much easier for the front-end to query
+/// Like RecipientSlot but without T, and thus can be stored in the Recipient object
+/// and makes it much easier for the front-end to query on chain Recipient
 public struct Slot has store {
     id: ID,
     slot_id: u8,
@@ -230,4 +230,3 @@ fun snapshot<T>(self: &RecipientSlot<T>): Slot {
         balance: self.balance.value()
     }
 }
-// === Tests ===

@@ -28,8 +28,8 @@ public struct Registry has key {
     is_private: bool,
     /// number of games allowed for this registration center
     size: u16,
-    /// owner (creator or tx sender) address
-    owner: address,
+    /// owner of this registry if it is private; otherwise no owner
+    owner: Option<address>,
     /// games registered in this center
     games: vector<GameReg>,
 }
@@ -40,11 +40,12 @@ public fun create_registry(
     size: u16,
     ctx: &mut TxContext
 ) {
+    let owner = if (is_private) { option::some(ctx.sender()) } else { option::none() };
     let registry = Registry {
         id: object::new(ctx),
         is_private,
         size,
-        owner: ctx.sender(),
+        owner,
         games: vector::empty<GameReg>(),
     };
 
@@ -62,8 +63,9 @@ public fun register_game<T>(
     clock: &Clock,
     ctx: &mut TxContext
 ) {
-    if (registry.is_private && ctx.sender() != registry.owner)
-    abort ERegistryOwnerMismatch;
+    if (registry.is_private) {
+        assert!(ctx.sender() == *registry.owner.borrow(), ERegistryOwnerMismatch)
+    };
 
     let n = vector::length(&registry.games);
     assert!(n < registry.size as u64, ERegistryIsFull);
@@ -96,8 +98,9 @@ public fun unregister_game(
 ) {
     let n = vector::length(&registry.games);
     assert!(n > 0, ERegistryIsEmpty);
-    if (registry.is_private && ctx.sender() != registry.owner)
-    abort ERegistryOwnerMismatch;
+    if (registry.is_private) {
+        assert!(ctx.sender() == *registry.owner.borrow(), ERegistryOwnerMismatch)
+    };
 
     let mut i = 0;
     let mut game_reged = false;
