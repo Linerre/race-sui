@@ -357,11 +357,11 @@ public fun serve_game<T>(
     assert!(server_num <= MAX_SERVER_NUM, EServerNumberExceedsLimit);
 
     // check duplicate server join
-    let server_addr = server.addr();
+    let server_owner = server.owner();
     let mut i = 0;
     while (i < server_num) {
         let curr_server: &ServerJoin = vector::borrow(&game.servers, i);
-        if (curr_server.addr == server.owner()) abort EDuplicateServerJoin;
+        if (curr_server.addr == server_owner) abort EDuplicateServerJoin;
         i = i + 1;
     };
 
@@ -371,7 +371,7 @@ public fun serve_game<T>(
     vector::push_back(
         &mut game.servers,
         ServerJoin {
-            addr: server_addr,
+            addr: server_owner,
             endpoint: server.endpoint(),
             access_version: game.access_version,
             verify_key,
@@ -380,7 +380,7 @@ public fun serve_game<T>(
 
     // if this is the first-joined server, make it transactor
     if (game.servers.length() == 1 && game.transactor_addr.is_none()) {
-        game.transactor_addr.swap_or_fill(server.owner());
+        game.transactor_addr.swap_or_fill(server_owner);
     };
 }
 
@@ -607,8 +607,8 @@ public(package) fun update_settle_verson<T>(self: &mut Game<T>, new_settle_versi
 
 public(package) fun update_checkpoint_data<T>(
     self: &mut Game<T>,
-    new_checkpoint_data: vector<u8>)
-{
+    new_checkpoint_data: vector<u8>
+) {
     self.checkpoint = new_checkpoint_data;
 }
 
