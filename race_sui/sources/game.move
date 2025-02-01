@@ -25,6 +25,7 @@ const EInvalidRejectionTxSender: u64 = 4203;
 const ERejectDepositNotFound: u64 = 4204;
 const EPlayerNotInGame: u64 = 4205;
 const EInvalidSettleVersion: u64 = 4206;
+const EInvalidBuyinAmount: u64 = 4207;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -437,10 +438,13 @@ public fun join_game<T>(
     game: &mut Game<T>,
     position: u16,
     join_amount: u64,
+    // buyin_amount: u64,
     verify_key: String,
-    player_coin: Coin<T>,
+    mut player_coins: vector<Coin<T>>,
     ctx: &mut TxContext
 ) {
+    // assert!(join_amount == buyin_amount, EInvalidBuyinAmount);
+
     let player_num = game.player_num();
     let max_players = game.max_players();
     let sender = ctx.sender();
@@ -495,6 +499,16 @@ public fun join_game<T>(
         EntryType::Disabled => (),
     };
 
+    // check join amount
+    let mut buyin = 0;
+    let coin_num = player_coins.length();
+    i = 0;
+    while (i < coin_num) {
+        let pcoin: &Coin<T> = player_coins.borrow(i);
+        buyin = buyin + pcoin.value()
+    };
+    assert!(buyin == join_amount, EInvalidBuyinAmount);
+
     // bump access version
     game.access_version = game.access_version + 1;
 
@@ -510,8 +524,11 @@ public fun join_game<T>(
     );
 
     // update game balance by adding the player's buyin coin into game balance
-    let player_balance: Balance<T> = player_coin.into_balance();
-    game.balance.join(player_balance);
+    while (!player_coins.is_empty()) {
+        let pcoin: Coin<T> = player_coins.pop_back();
+        game.balance.join(pcoin.into_balance());
+    };
+    vector::destroy_empty(player_coins);
 
     // record this deposit in game deposits
     game.deposits.push_back(
