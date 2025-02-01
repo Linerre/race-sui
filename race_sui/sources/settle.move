@@ -1,18 +1,13 @@
-#[allow(unused_use)]
 module race_sui::settle;
-use std::string::{Self, String};
-use sui::address;
-use sui::balance::{Self, Balance};
+use std::string::String;
+use sui::balance::Balance;
 use sui::coin::{Self, Coin};
-use sui::sui::SUI;
-use std::debug;
-use race_sui::game::{Bonus, EntryLock, Game, Prize, unpack_bonus};
-use race_sui::recipient::{RecipientSlot};
-use race_sui::server::Server;
+use race_sui::game::{EntryLock, Game, Prize, unpack_bonus};
+use race_sui::recipient::RecipientSlot;
 
 // === Errors ===
 const ESettlePlayerNotFound: u64 = 450;
-const ESettleCoinMismatch: u64 = 451;
+const ESettlePayMismatch: u64 = 451;
 const EInvalidSettleTxSender: u64 = 453;
 const EInvalidBonusReceiver: u64 = 457;
 const EInvalidBonusIdentifier: u64 = 458;
@@ -44,9 +39,9 @@ public struct Settle has drop, store {
 public struct Pay has drop, store {
     receiver: address,
     amount: u64,
-    coin_idx: u64,
 }
 
+// Can only be made by `pre_settle_checks` function
 public struct CheckPass has copy, drop {
     passed: bool
 }
@@ -58,7 +53,6 @@ public fun create_settle(player_id: u64, amount: u64, eject: bool): Settle {
 public fun handle_settles<T>(
     game: &mut Game<T>,
     settles: vector<Settle>,
-    mut coins: vector<Coin<T>>,
     pre_checks: CheckPass,
     ctx: &mut TxContext,
 ) {
@@ -74,13 +68,8 @@ public fun handle_settles<T>(
         let settle = vector::borrow(&settles, i);
         while (j < m) {
             if (game.validate_player_at_idx(j, settle.player_id)) {
-                vector::push_back(
-                    &mut pays,
-                    Pay {
-                        receiver: game.player_addr(j),
-                        amount: settle.amount,
-                        coin_idx: i // index of settle or coin
-                    }
+                pays.push_back(
+                    Pay {receiver: game.player_addr(j), amount: settle.amount}
                 );
                 if (settle.eject) {
                     ejects.push_back(j); // record players to be removed
@@ -98,24 +87,16 @@ public fun handle_settles<T>(
 
     i = 0;
     let k = vector::length(&pays);
-    assert!(n == k, ESettleCoinMismatch);
-    // add settle value to players' coins
+    assert!(n == k, ESettlePayMismatch);
+    // split out a coin with the settle amount and pay the coin to the settle player
     while (i < k) {
         let payinfo = vector::borrow(&pays, i);
-        let payment: Balance<T> = game.split_balance(payinfo.amount);
-        let paycoin: &mut Coin<T> = coins.borrow_mut(payinfo.coin_idx);
-        paycoin.join(coin::from_balance(payment, ctx));
+        let pay_amount: Balance<T> = game.split_balance(payinfo.amount);
+        let paycoin: Coin<T> = coin::from_balance(pay_amount, ctx);
+        transfer::public_transfer(paycoin, payinfo.receiver);
         i = i + 1;
     };
-    // return the value-added coins to their owners
-    while (i >= 0) {
-        let payinfo = pays.pop_back();
-        let paycoin: Coin<T> = coins.pop_back();
-        transfer::public_transfer(paycoin, payinfo.receiver);
-        i = i - 1;
-    };
     vector::destroy_empty(pays);
-    vector::destroy_empty(coins);
 }
 
 public fun handle_transfer<T>(
@@ -149,7 +130,8 @@ public fun handle_bonus<T, K: key + store>(
 
 // This should be the first move call in the PTB for settlement. It returns a struct
 // so that front end cannot simply pass a boolean value to bypass the prechecks.
-// There is no other way to create the struct in order to makes this call mandatory.
+// Sui Move runtime at the moment does not accept struct or enum being passed directly
+// from front end and thus ensures that this function is mandatory in the settlment
 public fun pre_settle_checks<T>(
     game: &Game<T>,
     server_owner: address,
@@ -163,6 +145,7 @@ public fun pre_settle_checks<T>(
     CheckPass {passed: true}
 }
 
+// Finish the settle by housekeeping
 public fun finish_settle<T>(
     game: &mut Game<T>,
     accept_deposits: vector<u64>,

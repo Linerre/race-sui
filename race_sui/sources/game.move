@@ -431,7 +431,8 @@ public fun reject_deposits<T>(
     game.eject_players(rejects);
 }
 
-/// Player joins a game
+// Player joins a game. On the front end, player coins must be merged when
+// there is no single coin with sufficient balance for buyin
 public fun join_game<T>(
     game: &mut Game<T>,
     position: u16,
@@ -508,7 +509,7 @@ public fun join_game<T>(
         }
     );
 
-    // update game balance and return the remaining coin to player
+    // update game balance by adding the player's buyin coin into game balance
     let player_balance: Balance<T> = player_coin.into_balance();
     game.balance.join(player_balance);
 
