@@ -84,20 +84,18 @@ public fun handle_settles<T>(
     };
 
     game.eject_players(ejects);
-
-    i = 0;
     let k = vector::length(&pays);
     assert!(n == k, ESettlePayMismatch);
     // split out a coin with the settle amount and pay the coin to the settle player
-    while (i < k) {
-        let payinfo = vector::borrow(&pays, i);
+    while (!pays.is_empty()) {
+        let payinfo = pays.pop_back();
         let pay_amount: Balance<T> = game.split_balance(payinfo.amount);
         let paycoin: Coin<T> = coin::from_balance(pay_amount, ctx);
         transfer::public_transfer(paycoin, payinfo.receiver);
-        i = i + 1;
     };
     vector::destroy_empty(pays);
 }
+
 
 public fun handle_transfer<T>(
     game: &mut Game<T>,
@@ -172,4 +170,34 @@ public fun finish_settle<T>(
 
 fun passed(self: &CheckPass): bool {
     self.passed
+}
+
+// === Test only
+#[test]
+fun test_settle() {
+    use race_sui::game::{make_fake_game, share_game};
+    use race_sui::recipient::{make_fake_slot, share_slot};
+    let mut ctx = tx_context::dummy();
+    let mut game = make_fake_game<0x2::sui::SUI>(&mut ctx);
+    let mut slot = make_fake_slot<0x2::sui::SUI>(&mut ctx);
+
+    let pre_checks = pre_settle_checks(
+        &game,
+        @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192,
+        1,
+        4
+    );
+    let settles = vector[
+        Settle {player_id: 3, amount: 1067000000, eject: true}
+    ];
+
+    // test settle
+    handle_settles<0x2::sui::SUI>(&mut game, settles, pre_checks, &mut ctx);
+
+    // test transfer
+    handle_transfer<0x2::sui::SUI>(&mut game, &mut slot, 3000000, pre_checks);
+
+    share_game(game);
+    share_slot(slot);
+
 }

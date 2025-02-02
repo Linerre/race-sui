@@ -769,7 +769,7 @@ public(package) fun update_deposits<T>(
     accept_deposits: vector<u64>
 ) {
     let mut i = 0;
-    let n = self.deposits.length();
+    let n = accept_deposits.length();
     while (i < n) {
         let game_deposit = self.deposits.borrow_mut(i);
         let deposit = accept_deposits.borrow(i);
@@ -845,4 +845,75 @@ public fun cover_url(nft: &GameNFT): String {
 
 public fun name(nft: &GameNFT): String {
     nft.name
+}
+
+
+// ==== Test only ===
+#[test_only]
+public(package) fun make_fake_game<T>(ctx: &mut TxContext): Game<T> {
+    let test_coin = coin::mint_for_testing<T>(2000_000_000, ctx);
+    Game<T> {
+    id: object::new(ctx),
+    version: string::utf8(b"0.1.0"),
+    title: string::utf8(b"Test SUI"),
+    bundle_addr: @0xb38c37e13d9b1ca471583f0f46e0483afdcd15fcc0ab84a34ccef2d009a9fd57,
+    token_addr: string::utf8(b"0x2::sui::SUI"),
+    owner: @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192,
+    recipient_addr: @0x4df6428542d32575158855b8186e6049a6cef9ff3934988247665dbc400ec5c0,
+    transactor_addr: option::some(@0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192),
+    access_version: 3,
+    settle_version: 1,
+    max_players: 6,
+    players: vector[
+        PlayerJoin {
+            addr: @0xd59f7460183d4fee9a4fccc1c80643ed42ed5f52c32cca3a99a9f59b575236a8,
+            position: 0,
+            access_version: 2,
+            verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPB+qehcObinvMUxfhRbUqzfZdA+JfuSzajnUCmkJSPh7okaBU+FCP2Goj9X27Y6Cz8YVPm2luGjZ5WGG42EHeg==")
+        },
+        PlayerJoin {
+            addr: @0x5b6eb18e764749862726832bf35e37d597975d234ef341fb39770a736879bc7b,
+            position: 1,
+            access_version: 3,
+            verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEm9ZYlsKI8Kht1BwRW1Y+4EEJPhOhIVuYMehw3xhUQfstIyCh5PDhptt/w8H8A1SOoXqHdKi251kspCZt3PhzfQ==")
+        }
+    ],
+    servers: vector[
+        ServerJoin {
+            addr: @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192,
+            endpoint: string::utf8(b"wss://tx-sui-devnet.racepoker.app"),
+            access_version: 1,
+            verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFpM0hCi+niuXfnVLY2BOnWzdm+YLFt5YkJRPp/TIJU21v49mim/eo01iK3Mfi1Be8TSwyL6vZLjGlYluZ1w3bw==")
+        }],
+       deposits: vector[
+           PlayerDeposit {
+               addr: @0xd59f7460183d4fee9a4fccc1c80643ed42ed5f52c32cca3a99a9f59b575236a8,
+               amount: 1000000000,
+               access_version: 2,
+               settle_version: 1,
+               status: DepositStatus::Accepted
+           },
+           PlayerDeposit {
+               addr: @0x5b6eb18e764749862726832bf35e37d597975d234ef341fb39770a736879bc7b,
+               amount: 1000000000,
+               access_version: 3,
+               settle_version: 1,
+               status: DepositStatus::Accepted
+           }
+    ],
+    balance: test_coin.into_balance(),
+    data_len: 36,
+    data: vector[],
+    votes: vector[],
+    unlock_time: option::none(),
+    entry_type: EntryType::Cash { min_deposit: 1000000000, max_deposit: 2000000000 },
+    checkpoint: vector[],
+    entry_lock: EntryLock::Open,
+    bonuses: vector[]
+    }
+}
+
+#[test_only]
+public(package) fun share_game<T>(game: Game<T>) {
+    transfer::share_object(game);
 }

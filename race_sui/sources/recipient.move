@@ -230,3 +230,29 @@ fun snapshot<T>(self: &RecipientSlot<T>): Slot {
         balance: self.balance.value()
     }
 }
+
+// === Test only ===
+#[test_only]
+public(package) fun make_fake_slot<T>(ctx: &mut TxContext): RecipientSlot<T> {
+    RecipientSlot<T> {
+        id: object::new(ctx),
+        slot_id: 0,
+        slot_type: RecipientSlotType::Token,
+        token_addr: string::utf8(b"0x2::sui::SUI"),
+        shares: vector[
+            RecipientSlotShare {
+                owner: RecipientSlotOwner::Assigned {
+                    addr: @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192
+                },
+                weights: 100,
+                claim_amount: 0
+            }
+        ],
+        balance: balance::zero<T>()
+    }
+}
+
+#[test_only]
+public(package) fun share_slot<T>(slot: RecipientSlot<T>) {
+    transfer::share_object(slot);
+}

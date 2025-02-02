@@ -16,4 +16,4 @@ publish:
     cd race_sui && sui client publish --force --skip-fetch-latest-git-deps
 
 test:
-    cd race_sui && sui move test
+    cd race_sui && sui move test --skip-fetch-latest-git-deps
