@@ -158,7 +158,7 @@ public fun finish_settle<T>(
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
     game.update_deposits(accept_deposits);
     game.retain_pending_deposits();
-    game.update_settle_verson(next_settle_version);
+    game.update_settle_version(next_settle_version);
     game.update_checkpoint_data(checkpoint_data);
     if (entry_lock.is_some()) {
         game.update_entry_lock(entry_lock.extract());

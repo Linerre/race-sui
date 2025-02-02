@@ -26,6 +26,7 @@ const ERejectDepositNotFound: u64 = 4204;
 const EPlayerNotInGame: u64 = 4205;
 const EInvalidSettleVersion: u64 = 4206;
 const EInvalidBuyinAmount: u64 = 4207;
+const EGameStateNotReady: u64 = 4208;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -444,6 +445,8 @@ public fun join_game<T>(
     ctx: &mut TxContext
 ) {
     // assert!(join_amount == buyin_amount, EInvalidBuyinAmount);
+    if (game.transactor_addr.is_none() || game.checkpoint.length() <= 0)
+    abort EGameStateNotReady;
 
     let player_num = game.player_num();
     let max_players = game.max_players();
@@ -505,7 +508,8 @@ public fun join_game<T>(
     i = 0;
     while (i < coin_num) {
         let pcoin: &Coin<T> = player_coins.borrow(i);
-        buyin = buyin + pcoin.value()
+        buyin = buyin + pcoin.value();
+        i = i + 1;
     };
     assert!(buyin == join_amount, EInvalidBuyinAmount);
 
@@ -619,7 +623,7 @@ public(package) fun eject_players<T>(self: &mut Game<T>, ejects: vector<u64>) {
     self.players = to_retain;
 }
 
-public(package) fun update_settle_verson<T>(self: &mut Game<T>, new_settle_version: u64) {
+public(package) fun update_settle_version<T>(self: &mut Game<T>, new_settle_version: u64) {
     self.settle_version = new_settle_version;
 }
 
