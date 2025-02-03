@@ -152,13 +152,40 @@ public fun create_recipient(
     transfer::share_object(recipient);
 }
 
-public(package) fun deposit<T>(
-    self: &mut RecipientSlot<T>,
-    amount: Balance<T>
-) {
+public(package) fun deposit<T>(self: &mut RecipientSlot<T>, amount: Balance<T>) {
     balance::join(&mut self.balance, amount);
 }
 
+public(package) fun slot_id<T>(self: &RecipientSlot<T>): ID {
+    self.id.to_inner()
+}
+
+public(package) fun slot_balance<T>(self: &RecipientSlot<T>): u64 {
+    self.balance.value()
+}
+
+public(package) fun recipient_slot_balance(self: &Recipient, index: u64): u64 {
+    self.slots.borrow(index).balance
+}
+
+// When a recipient slot object gets some transfered balance, this value should
+// be synced with the corresponding slots stored in recipient object
+public(package) fun sync_slot_balance(
+    self: &mut Recipient,
+    slot_id: ID,
+    new_balance: u64
+) {
+    let mut i = 0;
+    let n = self.slots.length();
+    while(i < n) {
+        let curr = self.slots.borrow_mut(i);
+        if (curr.id == slot_id) {
+            curr.balance = new_balance;
+            break
+        };
+        i = i + 1;
+    };
+}
 
 /// Claim stake from one slot
 public fun recipient_claim<T>(
@@ -220,7 +247,7 @@ fun calc_totals(
 }
 
 // take the reference of a slot object and make a slot struct
-fun snapshot<T>(self: &RecipientSlot<T>): Slot {
+public(package) fun snapshot<T>(self: &RecipientSlot<T>): Slot {
     Slot {
         id: self.id.uid_to_inner(),
         slot_id: self.slot_id,
@@ -253,6 +280,23 @@ public(package) fun make_fake_slot<T>(ctx: &mut TxContext): RecipientSlot<T> {
 }
 
 #[test_only]
+public(package) fun make_fake_recipient(
+    slot: Slot,
+    ctx: &mut TxContext,
+): Recipient {
+    Recipient {
+        id: object::new(ctx),
+        cap_addr: option::none(),
+        slots: vector[slot],
+    }
+}
+
+#[test_only]
 public(package) fun share_slot<T>(slot: RecipientSlot<T>) {
     transfer::share_object(slot);
+}
+
+#[test_only]
+public(package) fun share_recipient(recipient: Recipient) {
+    transfer::share_object(recipient);
 }

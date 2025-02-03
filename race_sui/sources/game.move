@@ -827,6 +827,10 @@ public fun servers_mut<T>(self: &mut Game<T>): &mut vector<ServerJoin> {
     &mut self.servers
 }
 
+public fun balance<T>(self: &Game<T>): u64 {
+    self.balance.value()
+}
+
 public fun access_version<T>(self: &Game<T>): u64 {
     self.access_version
 }

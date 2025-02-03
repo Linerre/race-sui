@@ -3,7 +3,7 @@ use std::string::String;
 use sui::balance::Balance;
 use sui::coin::{Self, Coin};
 use race_sui::game::{EntryLock, Game, Prize, unpack_bonus};
-use race_sui::recipient::RecipientSlot;
+use race_sui::recipient::{Recipient, RecipientSlot};
 
 // === Errors ===
 const ESettlePlayerNotFound: u64 = 450;
@@ -100,12 +100,17 @@ public fun handle_settles<T>(
 public fun handle_transfer<T>(
     game: &mut Game<T>,
     slot: &mut RecipientSlot<T>,
+    recipient: &mut Recipient,
     amount: u64,
     pre_checks: CheckPass,
 ) {
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
     let payment: Balance<T> = game.split_balance(amount);
     slot.deposit(payment);
+    // update (sync) the slot balance
+    let slot_id = slot.slot_id();
+    let slot_balance = slot.slot_balance();
+    recipient.sync_slot_balance(slot_id, slot_balance);
 }
 
 public fun handle_bonus<T, K: key + store>(
@@ -172,14 +177,23 @@ fun passed(self: &CheckPass): bool {
     self.passed
 }
 
-// === Test only
+// === For Test Only ===
 #[test]
 fun test_settle() {
     use race_sui::game::{make_fake_game, share_game};
-    use race_sui::recipient::{make_fake_slot, share_slot};
+    use race_sui::recipient::{make_fake_recipient, make_fake_slot, share_recipient, share_slot};
     let mut ctx = tx_context::dummy();
     let mut game = make_fake_game<0x2::sui::SUI>(&mut ctx);
-    let mut slot = make_fake_slot<0x2::sui::SUI>(&mut ctx);
+    let mut rslot = make_fake_slot<0x2::sui::SUI>(&mut ctx);
+    let slot = rslot.snapshot();
+    let mut recipient = make_fake_recipient(slot, &mut ctx);
+    let original_game_balance = 2_000_000_000;
+
+    // game balance shoud be 2 SUI
+    assert!(game.balance() == original_game_balance);
+
+    // print recipient before settlement
+    std::debug::print(&recipient);
 
     let pre_checks = pre_settle_checks(
         &game,
@@ -188,16 +202,42 @@ fun test_settle() {
         4
     );
     let settles = vector[
-        Settle {player_id: 3, amount: 1067000000, eject: true}
+        Settle {player_id: 3, amount: 1_067_000_000, eject: true}
     ];
 
     // test settle
     handle_settles<0x2::sui::SUI>(&mut game, settles, pre_checks, &mut ctx);
 
     // test transfer
-    handle_transfer<0x2::sui::SUI>(&mut game, &mut slot, 3000000, pre_checks);
+    handle_transfer<0x2::sui::SUI>(
+        &mut game,
+        &mut rslot,
+        &mut recipient,
+        3000000,
+        pre_checks
+    );
+
+    // print recipient after settlement
+    std::debug::print(&recipient);
+
+    // game should have one player left
+    assert!(game.player_num() == 1);
+
+    // player should have been ejected
+    assert!(!game.validate_player_id(3));
+
+    // game balance should be deducet the given amount
+    std::debug::print(&game.balance());
+    let curr_game_balance = original_game_balance - 1_067_000_000 - 3000000;
+    assert!(game.balance() == curr_game_balance);
+
+    // slot balance should be synced
+    assert!(recipient.recipient_slot_balance(0) == rslot.slot_balance());
 
     share_game(game);
-    share_slot(slot);
+    share_slot(rslot);
+    share_recipient(recipient);
+
+
 
 }
