@@ -2,7 +2,9 @@ module race_sui::settle;
 use std::string::String;
 use sui::balance::Balance;
 use sui::coin::{Self, Coin};
-use race_sui::game::{EntryLock, Game, Prize, unpack_bonus};
+use race_sui::game::{
+    BalanceChange, EntryLock, Game, Prize, new_balance_change, unpack_bonus
+};
 use race_sui::recipient::{Recipient, RecipientSlot};
 
 // === Errors ===
@@ -15,6 +17,7 @@ const EInvalidSettleVersion: u64 = 459;
 const EInvalidNextSettleVersion: u64 = 460;
 const EInvalidSettleServer: u64 = 461;
 const ESettlePreChecksNotPassed: u64 = 462;
+const EInvalidGameStake: u64 = 463;
 
 // === Structs ===
 public enum PlayerStatus {
@@ -23,22 +26,17 @@ public enum PlayerStatus {
     Dropout,
 }
 
-public enum AssetChange {
-    Add,
-    Sub,
-    NoChange,
-}
-
-public struct Settle has drop, store {
-    // identical to settle_version
+public struct Settle has copy, drop, store {
+    // identical to access_version
     player_id: u64,
     amount: u64,
-    eject: bool,
+    change: Option<BalanceChange>,
+    eject: bool
 }
 
-public struct Pay has drop, store {
+public struct Pay has copy, store {
     receiver: address,
-    amount: u64,
+    settle: Settle,
 }
 
 // Can only be made by `pre_settle_checks` function
@@ -46,8 +44,19 @@ public struct CheckPass has copy, drop {
     passed: bool
 }
 
-public fun create_settle(player_id: u64, amount: u64, eject: bool): Settle {
-    Settle { player_id, amount, eject }
+public fun create_settle(
+    player_id: u64,
+    amount: u64,
+    change_type: u8,            // 0: None, 1: Add, 2: Sub
+    change_amount: u64,         // 0 if there is no change
+    eject: bool,
+): Settle {
+    let change: Option<BalanceChange> = if (change_amount == 0) {
+        option::none()
+    } else {
+        option::some(new_balance_change(change_type, change_amount))
+    };
+    Settle { player_id, amount, change, eject }
 }
 
 public fun handle_settles<T>(
@@ -69,7 +78,10 @@ public fun handle_settles<T>(
         while (j < m) {
             if (game.validate_player_at_idx(j, settle.player_id)) {
                 pays.push_back(
-                    Pay {receiver: game.player_addr(j), amount: settle.amount}
+                    Pay {
+                        receiver: game.player_addr(j),
+                        settle: *settle // copy the settle
+                    }
                 );
                 if (settle.eject) {
                     ejects.push_back(j); // record players to be removed
@@ -86,14 +98,24 @@ public fun handle_settles<T>(
     game.eject_players(ejects);
     let k = vector::length(&pays);
     assert!(n == k, ESettlePayMismatch);
-    // split out a coin with the settle amount and pay the coin to the settle player
     while (!pays.is_empty()) {
-        let payinfo = pays.pop_back();
-        let pay_amount: Balance<T> = game.split_balance(payinfo.amount);
+        let Pay { receiver, settle } = pays.pop_back();
+        let Settle { player_id, amount, change, .. } = settle;
+        // if any player balance change, update it
+        if (change.is_some()) {
+            let bchange: BalanceChange = change.destroy_some();
+            game.change_player_balance(player_id, bchange);
+        };
+        // pay the settle player
+        let pay_amount: Balance<T> = game.split_stake(amount);
         let paycoin: Coin<T> = coin::from_balance(pay_amount, ctx);
-        transfer::public_transfer(paycoin, payinfo.receiver);
+        transfer::public_transfer(paycoin, receiver);
     };
     vector::destroy_empty(pays);
+
+    // validate game stake:
+    // stake = sume(balance) + rejected deposits + pending deposits
+    assert!(game.validate_stake(), EInvalidGameStake);
 }
 
 
@@ -105,7 +127,7 @@ public fun handle_transfer<T>(
     pre_checks: CheckPass,
 ) {
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
-    let payment: Balance<T> = game.split_balance(amount);
+    let payment: Balance<T> = game.split_stake(amount);
     slot.deposit(payment);
     // update (sync) the slot balance
     let slot_id = slot.slot_id();
@@ -155,7 +177,6 @@ public fun finish_settle<T>(
     next_settle_version: u64,
     checkpoint_data: vector<u8>,     // serialized data of checkpointonchain
     mut entry_lock: Option<EntryLock>,
-    reset: bool,
     pre_checks: CheckPass,
 ) {
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
@@ -165,10 +186,6 @@ public fun finish_settle<T>(
     game.update_checkpoint_data(checkpoint_data);
     if (entry_lock.is_some()) {
         game.update_entry_lock(entry_lock.extract());
-    };
-    if (reset) {
-        game.clear_players();
-        game.clear_deposits();
     };
 }
 
@@ -190,7 +207,7 @@ fun test_settle() {
     let original_game_balance = 2_000_000_000;
 
     // game balance shoud be 2 SUI
-    assert!(game.balance() == original_game_balance);
+    assert!(game.stake() == original_game_balance);
 
     // print recipient before settlement
     std::debug::print(&recipient);
@@ -202,7 +219,7 @@ fun test_settle() {
         4
     );
     let settles = vector[
-        Settle {player_id: 3, amount: 1_067_000_000, eject: true}
+        Settle {player_id: 3, amount: 1_067_000_000, eject: true, change: option::none()}
     ];
 
     // test settle
@@ -227,9 +244,9 @@ fun test_settle() {
     assert!(!game.validate_player_id(3));
 
     // game balance should be deducet the given amount
-    std::debug::print(&game.balance());
+    std::debug::print(&game.stake());
     let curr_game_balance = original_game_balance - 1_067_000_000 - 3000000;
-    assert!(game.balance() == curr_game_balance);
+    assert!(game.stake() == curr_game_balance);
 
     // slot balance should be synced
     assert!(recipient.recipient_slot_balance(0) == rslot.slot_balance());

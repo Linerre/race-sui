@@ -27,6 +27,9 @@ const EPlayerNotInGame: u64 = 4205;
 const EInvalidSettleVersion: u64 = 4206;
 const EInvalidBuyinAmount: u64 = 4207;
 const EGameStateNotReady: u64 = 4208;
+const EBalanceChangeUnderflow: u64 = 4209;
+const EBalanceChangeForInvalidPlayer: u64 = 4210;
+const EInvalidBalanceChangeType: u64 = 4211;
 
 // === Structs ===
 /// Only game owner can delete a game
@@ -88,6 +91,25 @@ public struct PlayerDeposit has copy, drop, store {
     status: DepositStatus
 }
 
+// The change shows the `Diff` between a player's balance recorded in the
+// previous checkpoint and the balance for this settlement. For example:
+// At the beginning, player A has a total balance of 100 and in the first
+// setttlement lost 50, the balance changes: 100 -> 50; diff: 0 -> Add(50)
+// Add/Sub has nothing to do with the player's balance gain or loss, it shows
+// only the difference of current balance and the previous one
+public enum BalanceChange has copy, drop, store {
+    Add(u64),
+    Sub(u64),
+}
+
+// TODO: need a phantom T?
+public struct PlayerBalance has copy, drop, store {
+    // identical to access_version
+    player_id: u64,
+    // current balance of this player
+    balance: u64,
+}
+
 #[allow(unused_field)]
 public struct Vote has drop, store {
     voter: address,
@@ -147,8 +169,8 @@ public struct Game<phantom T> has key {
     deposits: vector<PlayerDeposit>,
     /// game servers (max: 10)
     servers: vector<ServerJoin>,
-    /// total deposits (stake) from players and used for settles and transfers
-    balance: Balance<T>,
+    /// total deposits from players, on-chain only and used in settlement
+    stake: Balance<T>,
     /// data length
     data_len: u32,
     /// serialized game-specific data such as sb/bb
@@ -164,7 +186,9 @@ public struct Game<phantom T> has key {
     /// lock types for entry
     entry_lock: EntryLock,
     /// game bonuses, each is an on-chain object
-    bonuses: vector<Bonus>
+    bonuses: vector<Bonus>,
+    /// players' balances for the current settle version, stored on-and-off chain
+    player_balances: vector<PlayerBalance>,
 }
 
 public struct GameNFT has key, store {
@@ -237,7 +261,8 @@ public fun create_game<T>(
         votes: vector::empty<Vote>(),
         unlock_time: option::none(),
         entry_type,
-        balance: balance::zero<T>(),
+        stake: balance::zero<T>(),
+        player_balances: vector::empty<PlayerBalance>(),
         data_len,
         data,
         checkpoint: vector::empty<u8>(),
@@ -309,9 +334,9 @@ public fun close_game<T>(game: Game<T>, ctx: &mut TxContext) {
     assert!(game.players.is_empty(), EGameIsNotEmpty);
     assert!(game.bonuses.is_empty(), EGameBonusNotClaimed);
 
-    let Game {id, balance, bonuses, .. } = game;
-    // will abort with ENonZero if the balance is not zero
-    balance::destroy_zero(balance);
+    let Game {id, stake, bonuses, .. } = game;
+    // will abort with ENonZero if the stake is not zero
+    balance::destroy_zero(stake);
     vector::destroy_empty(bonuses);
 
     object::delete(id);
@@ -417,7 +442,7 @@ public fun reject_deposits<T>(
                 deposit.status = DepositStatus::Rejected;
                 let receiver = deposit.addr;
                 let payback: Coin<T> = coin::from_balance(
-                    game.balance.split(deposit.amount),
+                    game.stake.split(deposit.amount),
                     ctx
                 );
                 transfer::public_transfer(payback, receiver);
@@ -530,7 +555,7 @@ public fun join_game<T>(
     // update game balance by adding the player's buyin coin into game balance
     while (!player_coins.is_empty()) {
         let pcoin: Coin<T> = player_coins.pop_back();
-        game.balance.join(pcoin.into_balance());
+        game.stake.join(pcoin.into_balance());
     };
     vector::destroy_empty(player_coins);
 
@@ -541,7 +566,7 @@ public fun join_game<T>(
             amount: join_amount,
             access_version: game.access_version,
             settle_version: game.settle_version,
-            status: DepositStatus::Accepted
+            status: DepositStatus::Pending
         }
     );
 }
@@ -572,7 +597,7 @@ public fun deposit<T>(
     };
 
     let buyin_amount = buyin.value();
-    game.balance.join(buyin.into_balance());
+    game.stake.join(buyin.into_balance());
 
     // bump access version
     game.access_version = game.access_version + 1;
@@ -600,12 +625,18 @@ public fun create_entry_lock(variant: u8): Option<EntryLock> {
 }
 
 // === Public within package ===
-// These setters and getters are necessary as Sui Move makes all fields of any
-// objects defined in this module private to this module only
+public(package) fun new_balance_change(change_type: u8, amount: u64): BalanceChange {
+    match (change_type) {
+        1 => BalanceChange::Add(amount),
+        2 => BalanceChange::Sub(amount),
+        _ => abort EInvalidBalanceChangeType
+    }
+}
 
-/// Split amount out of game's balance.
-public(package) fun split_balance<T>(self: &mut Game<T>, amount: u64): Balance<T> {
-    balance::split(&mut self.balance, amount)
+
+/// Split amount out of game's stake.
+public(package) fun split_stake<T>(self: &mut Game<T>, amount: u64): Balance<T> {
+    balance::split(&mut self.stake, amount)
 }
 
 // Remove the players marked `eject` in settlement
@@ -651,6 +682,70 @@ public(package) fun clear_deposits<T>(
     self: &mut Game<T>,
 ) {
     self.deposits = vector::empty<PlayerDeposit>();
+}
+
+// Update the balances of a given player recorded in `player_balances`
+public(package) fun change_player_balance<T>(
+    self: &mut Game<T>,
+    player_id: u64,
+    change: BalanceChange
+) {
+    let mut i = 0;
+    let n = self.player_balances.length();
+    let mut found = false;
+    // if there is a record, update it
+    while(i < n) {
+        let pb = self.player_balances.borrow_mut(i);
+        if (pb.player_id == player_id) {
+            match (change) {
+                BalanceChange::Add(amt) => pb.balance = pb.balance + amt,
+                BalanceChange::Sub(amt) => {
+                    assert!(pb.balance >= amt, EBalanceChangeUnderflow);
+                    pb.balance = pb.balance - amt;
+                }
+            };
+            found = true;
+            break
+        };
+        i = i + 1;
+    };
+
+    // if there is none, add the new record only when it is an `Add` diff
+    if(!found) {
+        match (change) {
+            BalanceChange::Add(amt) => self.player_balances.push_back(
+                    PlayerBalance {
+                        player_id,
+                        balance: amt
+                    }),
+            BalanceChange::Sub(_amt) => abort EBalanceChangeForInvalidPlayer
+        }
+    };
+}
+
+public(package) fun validate_stake<T>(self: &Game<T>): bool {
+    let mut i = 0u64;
+    let mut sum_pending = 0u64;
+    let mut sum_rejected = 0u64;
+    let mut sum_balances = 0u64;
+    let n = self.deposits.length();
+    let m = self.player_balances.length();
+    while(i < n) {
+        let deposit = self.deposits.borrow(i);
+        match (deposit.status) {
+            DepositStatus::Rejected => sum_rejected = sum_rejected + deposit.amount,
+            DepositStatus::Pending => sum_pending = sum_pending + deposit.amount,
+            _ => ()
+        };
+        i = i + 1;
+    };
+    i = 0;
+    while(i < m) {
+        let pb = self.player_balances.borrow(i);
+        sum_balances = sum_balances + pb.balance;
+    };
+    // expect true
+    self.stake.value() == sum_balances + sum_pending + sum_rejected
 }
 
 public(package) fun validate_player_at_idx<T>(
@@ -827,8 +922,8 @@ public fun servers_mut<T>(self: &mut Game<T>): &mut vector<ServerJoin> {
     &mut self.servers
 }
 
-public fun balance<T>(self: &Game<T>): u64 {
-    self.balance.value()
+public fun stake<T>(self: &Game<T>): u64 {
+    self.stake.value()
 }
 
 public fun access_version<T>(self: &Game<T>): u64 {
@@ -905,7 +1000,7 @@ public(package) fun make_fake_game<T>(ctx: &mut TxContext): Game<T> {
                status: DepositStatus::Accepted
            }
     ],
-    balance: test_coin.into_balance(),
+    stake: test_coin.into_balance(),
     data_len: 36,
     data: vector[],
     votes: vector[],
