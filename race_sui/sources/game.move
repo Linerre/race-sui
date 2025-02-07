@@ -28,7 +28,7 @@ const EInvalidSettleVersion: u64 = 4206;
 const EInvalidBuyinAmount: u64 = 4207;
 const EGameStateNotReady: u64 = 4208;
 const EBalanceChangeUnderflow: u64 = 4209;
-const EBalanceChangeForInvalidPlayer: u64 = 4210;
+const EInvalidBalanceChange: u64 = 4210;
 const EInvalidBalanceChangeType: u64 = 4211;
 
 // === Structs ===
@@ -430,11 +430,7 @@ public fun reject_deposits<T>(
         let reject = rejects.borrow(i);
         while (j < m ) {
             let deposit = game.deposits.borrow_mut(j);
-            if (deposit.access_version != reject) {
-                j = j + 1;
-                continue
-            } else {
-                found = true;
+            if (deposit.access_version == reject) {
                 assert!(
                     deposit.status == DepositStatus::Pending,
                     EDuplicateDepositRejection
@@ -447,8 +443,11 @@ public fun reject_deposits<T>(
                 );
                 transfer::public_transfer(payback, receiver);
                 deposit.status = DepositStatus::Refunded;
+                found = true;
                 break
-            }
+            };
+            // else continue
+            j = j + 1;
         };
         if (!found) abort ERejectDepositNotFound;
         i = i + 1;
@@ -718,7 +717,7 @@ public(package) fun change_player_balance<T>(
                         player_id,
                         balance: amt
                     }),
-            BalanceChange::Sub(_amt) => abort EBalanceChangeForInvalidPlayer
+            BalanceChange::Sub(_amt) => abort EInvalidBalanceChange
         }
     };
 }
@@ -728,8 +727,8 @@ public(package) fun validate_stake<T>(self: &Game<T>): bool {
     let mut sum_pending = 0u64;
     let mut sum_rejected = 0u64;
     let mut sum_balances = 0u64;
+
     let n = self.deposits.length();
-    let m = self.player_balances.length();
     while(i < n) {
         let deposit = self.deposits.borrow(i);
         match (deposit.status) {
@@ -739,10 +738,13 @@ public(package) fun validate_stake<T>(self: &Game<T>): bool {
         };
         i = i + 1;
     };
+
     i = 0;
+    let m = self.player_balances.length();
     while(i < m) {
         let pb = self.player_balances.borrow(i);
         sum_balances = sum_balances + pb.balance;
+        i = i + 1;
     };
     // expect true
     self.stake.value() == sum_balances + sum_pending + sum_rejected
@@ -843,15 +845,20 @@ public(package) fun is_pending(self: &PlayerDeposit): bool {
     }
 }
 
-public(package) fun retain_pending_deposits<T>(
-    self: &mut Game<T>,
-) {
+public(package) fun is_rejected(self: &PlayerDeposit): bool {
+    match (self.status) {
+        DepositStatus::Rejected => true,
+        _ => false
+    }
+}
+
+public(package) fun retain_pending_deposits<T>(self: &mut Game<T>) {
     let mut i = 0;
     let n = self.deposits.length();
     let mut to_retain = vector::empty<PlayerDeposit>();
     while (i < n) {
         let deposit = self.deposits.borrow(i);
-        if (deposit.is_pending()) {
+        if (deposit.is_pending() || deposit.is_rejected()) {
             to_retain.push_back(*deposit);
         };
         i = i + 1;
@@ -865,14 +872,39 @@ public(package) fun update_deposits<T>(
 ) {
     let mut i = 0;
     let n = accept_deposits.length();
+    let m = self.deposits.length();
     while (i < n) {
-        let game_deposit = self.deposits.borrow_mut(i);
-        let deposit = accept_deposits.borrow(i);
-        if (*deposit == game_deposit.access_version) {
-            game_deposit.status = DepositStatus::Accepted;
+        let accept = accept_deposits.borrow(i);
+        // search for this accepted version in game deposits
+        let mut j = 0;
+        while(j < m) {
+            let game_deposit = self.deposits.borrow_mut(j);
+            if (accept == game_deposit.access_version) {
+                game_deposit.status = DepositStatus::Accepted;
+                break
+            };
+            // else continue
+            j = j + 1;
         };
         i = i + 1;
     }
+}
+
+// Remove any that has a zero balance
+public(package) fun update_player_balances<T>(self: &mut Game<T>) {
+    let mut to_retain = vector::empty<PlayerBalance>();
+    let mut i = 0;
+
+    let n = self.player_balances.length();
+    while(i < n) {
+        let bl = self.player_balances.borrow(i);
+        if (bl.balance > 0) {
+            to_retain.push_back(*bl);
+        };
+        i = i + 1;
+    };
+
+    self.player_balances = to_retain;
 }
 
 // === Public-view functions ===
@@ -1008,11 +1040,118 @@ public(package) fun make_fake_game<T>(ctx: &mut TxContext): Game<T> {
     entry_type: EntryType::Cash { min_deposit: 1000000000, max_deposit: 2000000000 },
     checkpoint: vector[],
     entry_lock: EntryLock::Open,
-    bonuses: vector[]
+    bonuses: vector[],
+    player_balances: vector[]
     }
 }
 
 #[test_only]
 public(package) fun share_game<T>(game: Game<T>) {
     transfer::share_object(game);
+}
+
+#[test_only]
+fun make_fake_game2<T>(ctx: &mut TxContext): Game<T> {
+    let test_coin = coin::mint_for_testing<T>(2000_000_000, ctx);
+    Game<T> {
+        id: object::new(ctx),
+        version: string::utf8(b"0.1.0"),
+        title: string::utf8(b"Test SUI"),
+        bundle_addr: @0xb38c37e13d9b1ca471583f0f46e0483afdcd15fcc0ab84a34ccef2d009a9fd57,
+        token_addr: string::utf8(b"0x2::sui::SUI"),
+        owner: @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192,
+        recipient_addr: @0x4df6428542d32575158855b8186e6049a6cef9ff3934988247665dbc400ec5c0,
+        transactor_addr: option::some(@0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192),
+        access_version: 4,
+        settle_version: 2,
+        max_players: 6,
+        players: vector[
+            PlayerJoin {
+                addr: @0xd59f7460183d4fee9a4fccc1c80643ed42ed5f52c32cca3a99a9f59b575236a8,
+                position: 0,
+                access_version: 3,
+                verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPB+qehcObinvMUxfhRbUqzfZdA+JfuSzajnUCmkJSPh7okaBU+FCP2Goj9X27Y6Cz8YVPm2luGjZ5WGG42EHeg==")
+            },
+            PlayerJoin {
+                addr: @0x5b6eb18e764749862726832bf35e37d597975d234ef341fb39770a736879bc7b,
+                position: 1,
+                access_version: 4,
+                verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEm9ZYlsKI8Kht1BwRW1Y+4EEJPhOhIVuYMehw3xhUQfstIyCh5PDhptt/w8H8A1SOoXqHdKi251kspCZt3PhzfQ==")
+            }
+        ],
+        servers: vector[
+            ServerJoin {
+                    addr: @0x7a1f6dc139d351b41066ea726d9b53670b6d827a0745d504dc93e61a581f7192,
+                    endpoint: string::utf8(b"wss://tx-sui-devnet.racepoker.app"),
+                    access_version: 1,
+                    verify_key: string::utf8(b"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFpM0hCi+niuXfnVLY2BOnWzdm+YLFt5YkJRPp/TIJU21v49mim/eo01iK3Mfi1Be8TSwyL6vZLjGlYluZ1w3bw==")
+            }],
+       deposits: vector[
+           PlayerDeposit {
+                    addr: @0x5b6eb18e764749862726832bf35e37d597975d234ef341fb39770a736879bc7b,
+                    amount: 1000000000,
+                    access_version: 3,
+                    settle_version: 2,
+                    status: DepositStatus::Pending
+                },
+           PlayerDeposit {
+                    addr: @0x2a440a1c6224807c441c7cfb8aaee7ecdd6ab9ce9b263eef3d82793baf1c30b3,
+                    amount: 1000000000,
+                    access_version: 4,
+                    settle_version: 2,
+                    status: DepositStatus::Pending
+                }
+       ],
+       stake: test_coin.into_balance(),
+       data_len: 36,
+       data: vector[],
+       votes: vector[],
+       unlock_time: option::none(),
+       entry_type: EntryType::Cash { min_deposit: 1000000000, max_deposit: 2000000000 },
+       checkpoint: vector[],
+       entry_lock: EntryLock::Open,
+       bonuses: vector[],
+       player_balances: vector[
+           PlayerBalance {balance: 0, player_id:3},
+           PlayerBalance {balance: 100_000_000, player_id :4},
+           PlayerBalance {balance: 0, player_id:5},
+       ]
+    }
+}
+
+#[test]
+fun test_accept_deposits() {
+    let mut ctx = tx_context::dummy();
+    let mut game = make_fake_game2<0x2::sui::SUI>(&mut ctx);
+
+    std::debug::print(&game.deposits);
+
+    {
+        let d1 = game.deposits.borrow(0);
+        let d2 = game.deposits.borrow(1);
+        assert!(d1.status == DepositStatus::Pending, 44);
+        assert!(d2.status == DepositStatus::Pending, 44);
+    };
+
+    game.update_deposits(vector[3u64, 4u64, 3u64, 4u64]);
+    let d1 = game.deposits.borrow(0);
+    let d2 = game.deposits.borrow(1);
+    assert!(d1.status == DepositStatus::Accepted, 44);
+    assert!(d2.status == DepositStatus::Accepted, 44);
+    std::debug::print(&game.deposits);
+    share_game(game);
+}
+
+#[test]
+fun test_update_balances() {
+    let mut ctx = tx_context::dummy();
+    let mut game = make_fake_game2<0x2::sui::SUI>(&mut ctx);
+    std::debug::print(&game.player_balances);
+
+    assert!(game.player_balances.length() == 3, 44);
+    game.update_player_balances();
+    assert!(game.player_balances.length() == 1, 44);
+
+    std::debug::print(&game.player_balances);
+    share_game(game);
 }

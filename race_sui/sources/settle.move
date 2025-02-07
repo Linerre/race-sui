@@ -112,10 +112,6 @@ public fun handle_settles<T>(
         transfer::public_transfer(paycoin, receiver);
     };
     vector::destroy_empty(pays);
-
-    // validate game stake:
-    // stake = sume(balance) + rejected deposits + pending deposits
-    assert!(game.validate_stake(), EInvalidGameStake);
 }
 
 
@@ -182,6 +178,12 @@ public fun finish_settle<T>(
     assert!(pre_checks.passed(), ESettlePreChecksNotPassed);
     game.update_deposits(accept_deposits);
     game.retain_pending_deposits();
+
+    // game stake = sum(balance) + rejected deposits + pending deposits
+    assert!(game.validate_stake(), EInvalidGameStake);
+    // update player balances list
+    game.update_player_balances();
+    // update other info
     game.update_settle_version(next_settle_version);
     game.update_checkpoint_data(checkpoint_data);
     if (entry_lock.is_some()) {
@@ -254,7 +256,4 @@ fun test_settle() {
     share_game(game);
     share_slot(rslot);
     share_recipient(recipient);
-
-
-
 }
